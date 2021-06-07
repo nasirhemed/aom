@@ -2927,13 +2927,13 @@ static AOM_INLINE void write_uncompressed_header_obu(
       for (int op_num = 0;
            op_num < seq_params->operating_points_cnt_minus_1 + 1; op_num++) {
         if (seq_params->op_params[op_num].decoder_model_param_present_flag) {
-          if (((seq_params->operating_point_idc[op_num] >>
+          if (seq_params->operating_point_idc[op_num] == 0 ||
+              ((seq_params->operating_point_idc[op_num] >>
                 cm->temporal_layer_id) &
                    0x1 &&
                (seq_params->operating_point_idc[op_num] >>
                 (cm->spatial_layer_id + 8)) &
-                   0x1) ||
-              seq_params->operating_point_idc[op_num] == 0) {
+                   0x1)) {
             aom_wb_write_unsigned_literal(
                 wb, cm->buffer_removal_times[op_num],
                 seq_params->decoder_model_info.buffer_removal_time_length);
@@ -3757,9 +3757,15 @@ void av1_reset_pack_bs_thread_data(ThreadData *const td) {
 
 void av1_accumulate_pack_bs_thread_data(AV1_COMP *const cpi,
                                         ThreadData const *td) {
+  int do_max_mv_magnitude_update = 1;
   cpi->rc.coefficient_size += td->coefficient_size;
 
-  if (cpi->sf.mv_sf.auto_mv_step_size)
+#if CONFIG_FRAME_PARALLEL_ENCODE
+  // Disable max_mv_magnitude update for parallel frames based on update flag.
+  if (!cpi->do_frame_data_update) do_max_mv_magnitude_update = 0;
+#endif
+
+  if (cpi->sf.mv_sf.auto_mv_step_size && do_max_mv_magnitude_update)
     cpi->mv_search_params.max_mv_magnitude =
         AOMMAX(cpi->mv_search_params.max_mv_magnitude, td->max_mv_magnitude);
 
@@ -3909,6 +3915,24 @@ static void write_tile_obu_size(AV1_COMP *const cpi, uint8_t *const dst,
   }
 }
 
+// As per the experiments, single-thread bitstream packing is better for
+// frames with a smaller bitstream size. This behavior is due to setup time
+// overhead of multithread function would be more than that of time required
+// to pack the smaller bitstream of such frames. We set a threshold on the
+// total absolute sum of transform coeffs to detect such frames and disable
+// Multithreading.
+int enable_pack_bitstream_mt(const TileDataEnc *tile_data, int num_tiles,
+                             int num_workers) {
+  if (AOMMIN(num_workers, num_tiles) <= 1) return 0;
+
+  const int num_work_sqr = num_workers * num_workers;
+  const uint64_t thresh = 50;
+  uint64_t frame_abs_sum_level = 0;
+  for (int idx = 0; idx < num_tiles; idx++)
+    frame_abs_sum_level += tile_data[idx].abs_sum_level;
+  return ((frame_abs_sum_level > (num_work_sqr * thresh) / (num_workers - 1)));
+}
+
 static INLINE uint32_t pack_tiles_in_tg_obus(
     AV1_COMP *const cpi, uint8_t *const dst,
     struct aom_write_bit_buffer *saved_wb, uint8_t obu_extension_header,
@@ -3923,12 +3947,8 @@ static INLINE uint32_t pack_tiles_in_tg_obus(
   const int tile_rows = tiles->rows;
   const int num_tiles = tile_rows * tile_cols;
 
-  // As per the experiments, single-thread bitstream packing is better for
-  // source alt-ref frames. This behavior is due to setup time overhead of
-  // multithread function would be more than that of time required to pack
-  // the smaller bitstream of source alt-ref frame.
   const int enable_mt =
-      AOMMIN(num_workers, num_tiles) > 1 && !cpi->rc.is_src_frame_alt_ref;
+      enable_pack_bitstream_mt(cpi->tile_data, num_tiles, num_workers);
 
   if (enable_mt) {
     av1_write_tile_obu_mt(cpi, dst, &total_size, saved_wb, obu_extension_header,

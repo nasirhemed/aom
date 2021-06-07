@@ -121,6 +121,26 @@ enum {
   FRAMEFLAGS_ERROR_RESILIENT = 1 << 6,
 } UENUM1BYTE(FRAMETYPE_FLAGS);
 
+#if CONFIG_FRAME_PARALLEL_ENCODE
+// 0 level frames are sometimes used for rate control purposes, but for
+// reference mapping purposes, the minimum level should be 1.
+#define MIN_PYR_LEVEL 1
+static INLINE int get_true_pyr_level(int frame_level, int frame_order,
+                                     int max_layer_depth) {
+  if (frame_order == 0) {
+    // Keyframe case
+    return MIN_PYR_LEVEL;
+  } else if (frame_level == MAX_ARF_LAYERS) {
+    // Leaves
+    return max_layer_depth;
+  } else if (frame_level == (MAX_ARF_LAYERS + 1)) {
+    // Altrefs
+    return MIN_PYR_LEVEL;
+  }
+  return AOMMAX(MIN_PYR_LEVEL, frame_level);
+}
+#endif  // CONFIG_FRAME_PARALLEL_ENCODE
+
 enum {
   NO_AQ = 0,
   VARIANCE_AQ = 1,
@@ -1597,10 +1617,13 @@ enum {
   rd_pick_sb_modes_time,
   av1_rd_pick_intra_mode_sb_time,
   av1_rd_pick_inter_mode_sb_time,
+  set_params_rd_pick_inter_mode_time,
+  skip_inter_mode_time,
   handle_inter_mode_time,
   evaluate_motion_mode_for_winner_candidates_time,
-  handle_intra_mode_time,
   do_tx_search_time,
+  handle_intra_mode_time,
+  refine_winner_mode_tx_time,
   av1_search_palette_mode_time,
   handle_newmv_time,
   compound_type_rd_time,
@@ -1645,11 +1668,15 @@ static INLINE char const *get_component_name(int index) {
       return "av1_rd_pick_intra_mode_sb_time";
     case av1_rd_pick_inter_mode_sb_time:
       return "av1_rd_pick_inter_mode_sb_time";
+    case set_params_rd_pick_inter_mode_time:
+      return "set_params_rd_pick_inter_mode_time";
+    case skip_inter_mode_time: return "skip_inter_mode_time";
     case handle_inter_mode_time: return "handle_inter_mode_time";
     case evaluate_motion_mode_for_winner_candidates_time:
       return "evaluate_motion_mode_for_winner_candidates_time";
-    case handle_intra_mode_time: return "handle_intra_mode_time";
     case do_tx_search_time: return "do_tx_search_time";
+    case handle_intra_mode_time: return "handle_intra_mode_time";
+    case refine_winner_mode_tx_time: return "refine_winner_mode_tx_time";
     case av1_search_palette_mode_time: return "av1_search_palette_mode_time";
     case handle_newmv_time: return "handle_newmv_time";
     case compound_type_rd_time: return "compound_type_rd_time";
@@ -2134,6 +2161,30 @@ typedef struct AV1_PRIMARY {
    * encode set.
    */
   struct AV1_FP_OUT_DATA parallel_frames_data[MAX_PARALLEL_FRAMES - 1];
+
+  /*!
+   * Loopfilter levels of the previous encoded frame.
+   */
+  int filter_level[2];
+  int filter_level_u;
+  int filter_level_v;
+
+  /*!
+   * Largest MV component used in previous encoded frame during
+   * stats consumption stage.
+   */
+  int max_mv_magnitude;
+
+  /*!
+   * Temporary variable simulating the delayed frame_probability update.
+   */
+  FrameProbInfo temp_frame_probs;
+
+  /*!
+   * Temporary variable used in simulating the delayed update of
+   * avg_frame_qindex.
+   */
+  int temp_avg_frame_qindex[FRAME_TYPES];
 #endif  // CONFIG_FRAME_PARALLEL_ENCODE
   /*!
    * Encode stage top level structure
@@ -2275,6 +2326,11 @@ typedef struct AV1_PRIMARY {
    */
   TplParams tpl_data;
 
+  /*!
+   * Motion vector stats of the previous encoded frame.
+   */
+  MV_STATS mv_stats;
+
 #if CONFIG_INTERNAL_STATS
   /*!\cond */
   uint64_t total_time_receive_data;
@@ -2318,6 +2374,14 @@ typedef struct AV1_PRIMARY {
    */
   FRAME_COUNTS aggregate_fc;
 #endif  // CONFIG_ENTROPY_STATS
+
+  /*!
+   * For each type of reference frame, this contains the index of a reference
+   * frame buffer for a reference frame of the same type.  We use this to
+   * choose our primary reference frame (which is the most recent reference
+   * frame of the same type as the current frame).
+   */
+  int fb_of_context_type[REF_FRAMES];
 } AV1_PRIMARY;
 
 /*!
@@ -2462,14 +2526,6 @@ typedef struct AV1_COMP {
    * Refresh frame flags for golden, bwd-ref and alt-ref frames.
    */
   RefreshFrameFlagsInfo refresh_frame;
-
-  /*!
-   * For each type of reference frame, this contains the index of a reference
-   * frame buffer for a reference frame of the same type.  We use this to
-   * choose our primary reference frame (which is the most recent reference
-   * frame of the same type as the current frame).
-   */
-  int fb_of_context_type[REF_FRAMES];
 
   /*!
    * Flags signalled by the external interface at frame level.
@@ -2794,12 +2850,6 @@ typedef struct AV1_COMP {
   COMPRESSOR_STAGE compressor_stage;
 
   /*!
-   * Some motion vector stats from the last encoded frame to help us decide what
-   * precision to use to encode the current frame.
-   */
-  MV_STATS mv_stats;
-
-  /*!
    * Frame type of the last frame. May be used in some heuristics for speeding
    * up the encoding.
    */
@@ -2861,6 +2911,15 @@ typedef struct AV1_COMP {
    * It is used to do partition type selection based on external models.
    */
   ExtPartController ext_part_controller;
+
+#if CONFIG_FRAME_PARALLEL_ENCODE
+  /*!
+   * A flag to indicate frames that will update their data to the primary
+   * context at the end of the encode. It is set for non-parallel frames and the
+   * last frame in encode order in a given parallel encode set.
+   */
+  bool do_frame_data_update;
+#endif
 } AV1_COMP;
 
 /*!
@@ -2969,6 +3028,9 @@ void av1_check_initial_width(AV1_COMP *cpi, int use_highbitdepth,
 
 void av1_init_seq_coding_tools(AV1_PRIMARY *const ppi,
                                const AV1EncoderConfig *oxcf, int use_svc);
+
+void av1_post_encode_updates(AV1_COMP *const cpi, size_t size,
+                             int64_t time_stamp, int64_t time_end);
 
 /*!\endcond */
 
@@ -3080,6 +3142,71 @@ void av1_set_screen_content_options(struct AV1_COMP *cpi,
 
 void av1_update_frame_size(AV1_COMP *cpi);
 
+#if CONFIG_FRAME_PARALLEL_ENCODE
+typedef struct {
+  int pyr_level;
+  int disp_order;
+} RefFrameMapPair;
+
+static INLINE void init_ref_map_pair(
+    AV1_COMP *cpi, RefFrameMapPair ref_frame_map_pairs[REF_FRAMES]) {
+  if (cpi->ppi->gf_group.update_type[cpi->gf_frame_index] == KF_UPDATE) {
+    memset(ref_frame_map_pairs, -1, sizeof(*ref_frame_map_pairs) * REF_FRAMES);
+    return;
+  }
+  memset(ref_frame_map_pairs, 0, sizeof(*ref_frame_map_pairs) * REF_FRAMES);
+  for (int map_idx = 0; map_idx < REF_FRAMES; map_idx++) {
+    // Get reference frame buffer.
+    const RefCntBuffer *const buf = cpi->common.ref_frame_map[map_idx];
+    if (ref_frame_map_pairs[map_idx].disp_order == -1) continue;
+    if (buf == NULL) {
+      ref_frame_map_pairs[map_idx].disp_order = -1;
+      ref_frame_map_pairs[map_idx].pyr_level = -1;
+      continue;
+    } else if (buf->ref_count > 1) {
+      // Once the keyframe is coded, the slots in ref_frame_map will all
+      // point to the same frame. In that case, all subsequent pointers
+      // matching the current are considered "free" slots. This will find
+      // the next occurance of the current pointer if ref_count indicates
+      // there are multiple instances of it and mark it as free.
+      for (int idx2 = map_idx + 1; idx2 < REF_FRAMES; ++idx2) {
+        const RefCntBuffer *const buf2 = cpi->common.ref_frame_map[idx2];
+        if (buf2 == buf) {
+          ref_frame_map_pairs[idx2].disp_order = -1;
+          ref_frame_map_pairs[idx2].pyr_level = -1;
+        }
+      }
+    }
+    ref_frame_map_pairs[map_idx].disp_order = (int)buf->display_order_hint;
+    ref_frame_map_pairs[map_idx].pyr_level = buf->pyramid_level;
+  }
+}
+
+static AOM_INLINE void calc_frame_data_update_flag(
+    GF_GROUP *const gf_group, int gf_frame_index,
+    bool *const do_frame_data_update) {
+  *do_frame_data_update = true;
+  // Set the flag to false for all frames in a given parallel encode set except
+  // the last frame in the set with frame_parallel_level = 2.
+  if (gf_group->frame_parallel_level[gf_frame_index] == 1) {
+    *do_frame_data_update = false;
+  } else if (gf_group->frame_parallel_level[gf_frame_index] == 2) {
+    // Check if this is the last frame in the set with frame_parallel_level = 2.
+    for (int i = gf_frame_index + 1; i < gf_group->size; i++) {
+      if ((gf_group->frame_parallel_level[i] == 0 &&
+           (gf_group->update_type[i] == ARF_UPDATE ||
+            gf_group->update_type[i] == INTNL_ARF_UPDATE)) ||
+          gf_group->frame_parallel_level[i] == 1) {
+        break;
+      } else if (gf_group->frame_parallel_level[i] == 2) {
+        *do_frame_data_update = false;
+        break;
+      }
+    }
+  }
+}
+#endif  // CONFIG_FRAME_PARALLEL_ENCODE
+
 // TODO(jingning): Move these functions as primitive members for the new cpi
 // class.
 static INLINE void stack_push(int *stack, int *stack_size, int item) {
@@ -3188,6 +3315,21 @@ static INLINE int is_altref_enabled(int lag_in_frames, bool enable_auto_arf) {
   return lag_in_frames >= ALT_MIN_LAG && enable_auto_arf;
 }
 
+static AOM_INLINE int can_disable_altref(const GFConfig *gf_cfg) {
+  return is_altref_enabled(gf_cfg->lag_in_frames, gf_cfg->enable_auto_arf) &&
+         (gf_cfg->gf_min_pyr_height == 0);
+}
+
+static AOM_INLINE int use_ml_model_to_decide_flat_gop(
+    const RateControlCfg *rc_cfg) {
+  return (rc_cfg->mode == AOM_Q && rc_cfg->cq_level <= 200);
+}
+
+// Helper function to compute number of blocks on either side of the frame.
+static INLINE int get_num_blocks(const int frame_length, const int mb_length) {
+  return (frame_length + mb_length - 1) / mb_length;
+}
+
 // Check if statistics generation stage
 static INLINE int is_stat_generation_stage(const AV1_COMP *const cpi) {
   assert(IMPLIES(cpi->compressor_stage == LAP_STAGE,
@@ -3220,7 +3362,13 @@ static INLINE int has_no_stats_stage(const AV1_COMP *const cpi) {
       IMPLIES(!cpi->ppi->lap_enabled, cpi->compressor_stage == ENCODE_STAGE));
   return (cpi->oxcf.pass == 0 && !cpi->ppi->lap_enabled);
 }
+
 /*!\cond */
+
+static INLINE int is_one_pass_rt_params(const AV1_COMP *cpi) {
+  return has_no_stats_stage(cpi) && cpi->oxcf.mode == REALTIME &&
+         cpi->oxcf.gf_cfg.lag_in_frames == 0;
+}
 
 // Function return size of frame stats buffer
 static INLINE int get_stats_buf_size(int num_lap_buffer, int num_lag_buffer) {

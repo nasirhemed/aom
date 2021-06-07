@@ -555,9 +555,52 @@ typedef struct PARTITION_SPEED_FEATURES {
   // 0: disable pruning, 1: enable pruning
   int simple_motion_search_rect_split;
 
+  // The current encoder adopts a DFS search for block partitions.
+  // Therefore the mode selection and associated rdcost is ready for smaller
+  // blocks before the mode selection for some partition types.
+  // AB partition could use previous rd information and skip mode search.
+  // An example is:
+  //
+  //  current block
+  //  +---+---+
+  //  |       |
+  //  +       +
+  //  |       |
+  //  +-------+
+  //
+  //  SPLIT partition has been searched first before trying HORZ_A
+  //  +---+---+
+  //  | R | R |
+  //  +---+---+
+  //  | R | R |
+  //  +---+---+
+  //
+  //  HORZ_A
+  //  +---+---+
+  //  |   |   |
+  //  +---+---+
+  //  |       |
+  //  +-------+
+  //
+  //  With this speed feature, the top two sub blocks can directly use rdcost
+  //  searched in split partition, and the mode info is also copied from
+  //  saved info. Similarly, the bottom rectangular block can also use
+  //  the available information from previous rectangular search.
+  int reuse_prev_rd_results_for_part_ab;
+
   // Reuse the best prediction modes found in PARTITION_SPLIT and PARTITION_RECT
   // when encoding PARTITION_AB.
   int reuse_best_prediction_for_part_ab;
+
+  // The current partition search records the best rdcost so far and uses it
+  // in mode search and transform search to early skip when some criteria is
+  // met. For example, when the current rdcost is larger than the best rdcost,
+  // or the model rdcost is larger than the best rdcost times some thresholds.
+  // By default, this feature is turned on to speed up the encoder partition
+  // search.
+  // If disabling it, at speed 0, 30 frames, we could get
+  // about -0.25% quality gain (psnr, ssim, vmaf), with about 13% slowdown.
+  int use_best_rd_for_pruning;
 } PARTITION_SPEED_FEATURES;
 
 typedef struct MV_SPEED_FEATURES {
@@ -668,16 +711,19 @@ typedef struct INTER_MODE_SPEED_FEATURES {
 
   int alt_ref_search_fp;
 
-  // flag to skip NEWMV mode in drl if the motion search result is the same
-  int skip_repeated_newmv;
-
-  // Skip the current ref_mv in NEW_MV mode if we have already encountered
-  // another ref_mv in the drl such that:
-  //  1. The other drl has the same fullpel_mv during the SIMPLE_TRANSLATION
-  //     search process as the current fullpel_mv.
-  //  2. The rate needed to encode the current fullpel_mv is larger than that
-  //     for the other ref_mv.
-  int skip_repeated_full_newmv;
+  // Skip the current ref_mv in NEW_MV mode based on mv, rate cost, etc.
+  // This speed feature equaling 0 means no skipping.
+  // If the speed feature equals 1 or 2, skip the current ref_mv in NEW_MV mode
+  // if we have already encountered ref_mv in the drl such that:
+  //  1. The other drl has the same mv during the SIMPLE_TRANSLATION search
+  //     process as the current mv.
+  //  2. The rate needed to encode the current mv is larger than that for the
+  //     other ref_mv.
+  // The speed feature equaling 1 means using subpel mv in the comparison.
+  // The speed feature equaling 2 means using fullpel mv in the comparison.
+  // If the speed feature >= 3, skip the current ref_mv in NEW_MV mode based on
+  // known full_mv bestsme and drl cost.
+  int skip_newmv_in_drl;
 
   // This speed feature checks duplicate ref MVs among NEARESTMV, NEARMV,
   // GLOBALMV and skips NEARMV or GLOBALMV (in order) if a duplicate is found
@@ -776,6 +822,9 @@ typedef struct INTER_MODE_SPEED_FEATURES {
 
   // Clip the frequency of updating the coeff cost.
   INTERNAL_COST_UPDATE_TYPE coeff_cost_upd_level;
+
+  // Clip the frequency of updating the mode cost.
+  INTERNAL_COST_UPDATE_TYPE mode_cost_upd_level;
 
   // Prune inter modes based on tpl stats
   // 0 : no pruning
@@ -895,6 +944,11 @@ typedef struct INTRA_MODE_SPEED_FEATURES {
   // 33: Exhaustive rd search (33 == CFL_MAGS_SIZE). This mode should only
   // be used for debugging purpose.
   int cfl_search_range;
+
+  // TOP_INTRA_MODEL_COUNT is 4 that is the number of top model rd to store in
+  // intra mode decision. Here, add a speed feature to reduce this number for
+  // higher speeds.
+  int top_intra_model_count_allowed;
 } INTRA_MODE_SPEED_FEATURES;
 
 typedef struct TX_SPEED_FEATURES {
@@ -1152,6 +1206,11 @@ typedef struct REAL_TIME_SPEED_FEATURES {
 
   // Skips mode checks more agressively in nonRD mode
   int nonrd_agressive_skip;
+
+  // Skip cdef on 64x64 blocks when NEWMV or INTRA is not picked or color
+  // sensitivity is off. When color sensitivity is on for a superblock, all
+  // 64x64 blocks within will not skip.
+  int skip_cdef_sb;
 } REAL_TIME_SPEED_FEATURES;
 
 /*!\endcond */

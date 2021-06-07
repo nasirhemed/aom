@@ -129,10 +129,6 @@ typedef struct TplDepFrame {
   int mi_cols;
   int base_rdmult;
   uint32_t frame_display_index;
-  double abs_coeff_sum[256];  // Assume we are using 16x16 transform block
-  double abs_coeff_mean[256];
-  int coeff_num;  // number of coefficients in a transform block
-  int txfm_block_count;
 } TplDepFrame;
 
 /*!\endcond */
@@ -163,6 +159,12 @@ typedef struct TplParams {
    * group.
    */
   TplDepStats *tpl_stats_pool[MAX_LAG_BUFFERS];
+
+  /*!
+   * Buffer to store tpl transform stats per frame.
+   * txfm_stats_list[i] stores the TplTxfmStats of the ith frame in a gf group.
+   */
+  TplTxfmStats txfm_stats_list[MAX_LENGTH_TPL_FRAME_STATS];
 
   /*!
    * Buffer to store tpl reconstructed frame.
@@ -209,6 +211,14 @@ typedef struct TplParams {
    * Frame border for tpl frame.
    */
   int border_in_pixels;
+
+#if CONFIG_BITRATE_ACCURACY
+  /*
+   * Estimated and actual GOP bitrate.
+   */
+  double estimated_gop_bitrate;
+  double actual_gop_bitrate;
+#endif
 } TplParams;
 
 /*!\brief Allocate buffers used by tpl model
@@ -349,16 +359,6 @@ void av1_accumulate_tpl_txfm_stats(const TplTxfmStats *sub_stats,
  */
 void av1_record_tpl_txfm_block(TplTxfmStats *tpl_txfm_stats,
                                const tran_low_t *coeff);
-
-/*!\brief  Init data structure storing transform stats
- *
- *\ingroup tpl_modelling
- *
- * \param[in]    tpl_frame       pointer of tpl frame data structure
- * \param[in]    tpl_bsize_1d    length of the side of a square transform block
- *
- */
-void av1_tpl_stats_init_txfm_stats(TplDepFrame *tpl_frame, int tpl_bsize_1d);
 
 /*!\brief  Estimate coefficient entropy using Laplace dsitribution
  *

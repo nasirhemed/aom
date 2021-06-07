@@ -43,6 +43,13 @@
 #define DEFAULT_KF_BOOST 2300
 #define DEFAULT_GF_BOOST 2000
 #define GROUP_ADAPTIVE_MAXQ 1
+
+static INLINE int is_fp_stats_to_predict_flat_gop_invalid(
+    const FIRSTPASS_STATS *fp_stats) {
+  return ((fp_stats->tr_coded_error < 0) || (fp_stats->pcnt_third_ref < 0) ||
+          (fp_stats->frame_avg_wavelet_energy < 0));
+}
+
 static void init_gf_stats(GF_GROUP_STATS *gf_stats);
 
 // Calculate an active area of the image that discounts formatting
@@ -2425,8 +2432,10 @@ static void define_gf_group(AV1_COMP *cpi, FIRSTPASS_STATS *this_frame,
         p_rc->use_arf_in_this_kf_group && (i < gf_cfg->lag_in_frames) &&
         (i >= MIN_GF_INTERVAL);
 
+    FIRSTPASS_STATS *total_stats = twopass->stats_buf_ctx->total_stats;
     // TODO(urvang): Improve and use model for VBR, CQ etc as well.
-    if (use_alt_ref && rc_cfg->mode == AOM_Q && rc_cfg->cq_level <= 200) {
+    if (use_alt_ref && use_ml_model_to_decide_flat_gop(rc_cfg) &&
+        !is_fp_stats_to_predict_flat_gop_invalid(total_stats)) {
       aom_clear_system_state();
       float features[21];
       get_features_from_gf_stats(
@@ -3378,24 +3387,67 @@ static int get_section_target_bandwidth(AV1_COMP *cpi) {
   return section_target_bandwidth;
 }
 
+static INLINE void set_twopass_params_based_on_fp_stats(
+    const AV1_COMP *cpi, const FIRSTPASS_STATS *this_frame_ptr) {
+  if (this_frame_ptr == NULL) return;
+
+  TWO_PASS *const twopass = &cpi->ppi->twopass;
+  const int num_mbs = (cpi->oxcf.resize_cfg.resize_mode != RESIZE_NONE)
+                          ? cpi->initial_mbs
+                          : cpi->common.mi_params.MBs;
+  // The multiplication by 256 reverses a scaling factor of (>> 8)
+  // applied when combining MB error values for the frame.
+  twopass->mb_av_energy = log((this_frame_ptr->intra_error / num_mbs) + 1.0);
+
+  const FIRSTPASS_STATS *const total_stats =
+      twopass->stats_buf_ctx->total_stats;
+  if (is_fp_wavelet_energy_invalid(total_stats) == 0) {
+    twopass->frame_avg_haar_energy =
+        log((this_frame_ptr->frame_avg_wavelet_energy / num_mbs) + 1.0);
+  }
+
+  // Set the frame content type flag.
+  if (this_frame_ptr->intra_skip_pct >= FC_ANIMATION_THRESH)
+    twopass->fr_content_type = FC_GRAPHICS_ANIMATION;
+  else
+    twopass->fr_content_type = FC_NORMAL;
+}
+
 static void process_first_pass_stats(AV1_COMP *cpi,
                                      FIRSTPASS_STATS *this_frame) {
   AV1_COMMON *const cm = &cpi->common;
   CurrentFrame *const current_frame = &cm->current_frame;
   RATE_CONTROL *const rc = &cpi->rc;
   TWO_PASS *const twopass = &cpi->ppi->twopass;
+  FIRSTPASS_STATS *total_stats = twopass->stats_buf_ctx->total_stats;
+
+  if (current_frame->frame_number == 0) {
+    const GFConfig *const gf_cfg = &cpi->oxcf.gf_cfg;
+    const RateControlCfg *const rc_cfg = &cpi->oxcf.rc_cfg;
+    if (use_ml_model_to_decide_flat_gop(rc_cfg) && can_disable_altref(gf_cfg) &&
+        is_fp_stats_to_predict_flat_gop_invalid(total_stats)) {
+      // warn(
+      //     "First pass stats required in the ML model to predict a flat GOP "
+      //     "structure is invalid. Continuing encoding by disabling the ML "
+      //     "model.\n");
+      // The first pass statistics like tr_coded_error, pcnt_third_ref,
+      // frame_avg_wavelet_energy are invalid as their calculations were
+      // skipped in the first pass of encoding. As these stats are required
+      // in the ML model to predict a flat GOP structure, the ML model would be
+      // disabled. This case arises when the encode configuration used in first
+      // pass encoding is different from second pass encoding.
+    }
+  }
 
   if (cpi->oxcf.rc_cfg.mode != AOM_Q && current_frame->frame_number == 0 &&
-      cpi->gf_frame_index == 0 &&
-      cpi->ppi->twopass.stats_buf_ctx->total_stats &&
+      cpi->gf_frame_index == 0 && total_stats &&
       cpi->ppi->twopass.stats_buf_ctx->total_left_stats) {
     if (cpi->ppi->lap_enabled) {
       /*
        * Accumulate total_stats using available limited number of stats,
        * and assign it to total_left_stats.
        */
-      *cpi->ppi->twopass.stats_buf_ctx->total_left_stats =
-          *cpi->ppi->twopass.stats_buf_ctx->total_stats;
+      *cpi->ppi->twopass.stats_buf_ctx->total_left_stats = *total_stats;
     }
     // Special case code for first frame.
     const int section_target_bandwidth = get_section_target_bandwidth(cpi);
@@ -3422,30 +3474,12 @@ static void process_first_pass_stats(AV1_COMP *cpi,
     rc->avg_frame_qindex[KEY_FRAME] = rc->last_q[KEY_FRAME];
   }
 
-  int err = 0;
   if (cpi->ppi->lap_enabled) {
-    err = input_stats_lap(twopass, this_frame);
+    input_stats_lap(twopass, this_frame);
   } else {
-    err = input_stats(twopass, this_frame);
+    input_stats(twopass, this_frame);
   }
-  if (err == EOF) return;
-
-  {
-    const int num_mbs = (cpi->oxcf.resize_cfg.resize_mode != RESIZE_NONE)
-                            ? cpi->initial_mbs
-                            : cm->mi_params.MBs;
-    // The multiplication by 256 reverses a scaling factor of (>> 8)
-    // applied when combining MB error values for the frame.
-    twopass->mb_av_energy = log((this_frame->intra_error / num_mbs) + 1.0);
-    twopass->frame_avg_haar_energy =
-        log((this_frame->frame_avg_wavelet_energy / num_mbs) + 1.0);
-  }
-
-  // Set the frame content type flag.
-  if (this_frame->intra_skip_pct >= FC_ANIMATION_THRESH)
-    twopass->fr_content_type = FC_GRAPHICS_ANIMATION;
-  else
-    twopass->fr_content_type = FC_NORMAL;
+  set_twopass_params_based_on_fp_stats(cpi, this_frame);
 }
 
 static void setup_target_rate(AV1_COMP *cpi) {
@@ -3610,6 +3644,7 @@ void av1_get_second_pass_params(AV1_COMP *cpi,
 
   if (is_stat_consumption_stage(cpi) && !twopass->stats_in) return;
 
+  assert(twopass->stats_in != NULL);
   const int update_type = gf_group->update_type[cpi->gf_frame_index];
   frame_params->frame_type = gf_group->frame_type[cpi->gf_frame_index];
 
@@ -3626,6 +3661,9 @@ void av1_get_second_pass_params(AV1_COMP *cpi,
       if (cpi->sf.part_sf.allow_partition_search_skip && oxcf->pass == 2) {
         cpi->partition_search_skippable_frame = is_skippable_frame(cpi);
       }
+      const FIRSTPASS_STATS *const this_frame_ptr = read_frame_stats(
+          twopass, gf_group->arf_src_offset[cpi->gf_frame_index]);
+      set_twopass_params_based_on_fp_stats(cpi, this_frame_ptr);
       return;
     }
   }
@@ -3784,7 +3822,8 @@ void av1_get_second_pass_params(AV1_COMP *cpi,
            p_rc->regions[next_region].type == SCENECUT_REGION);
       int ori_gf_int = p_rc->gf_intervals[p_rc->cur_gf_index];
 
-      if (p_rc->gf_intervals[p_rc->cur_gf_index] > 16) {
+      if (p_rc->gf_intervals[p_rc->cur_gf_index] > 16 &&
+          rc->min_gf_interval <= 16) {
         // The calculate_gf_length function is previously used with
         // max_gop_length = 32 with look-ahead gf intervals.
         define_gf_group(cpi, &this_frame, frame_params, max_gop_length, 0);
@@ -3831,6 +3870,10 @@ void av1_get_second_pass_params(AV1_COMP *cpi,
   if (gf_group->update_type[cpi->gf_frame_index] == ARF_UPDATE ||
       gf_group->update_type[cpi->gf_frame_index] == INTNL_ARF_UPDATE) {
     reset_fpf_position(twopass, start_pos);
+
+    const FIRSTPASS_STATS *const this_frame_ptr = read_frame_stats(
+        twopass, gf_group->arf_src_offset[cpi->gf_frame_index]);
+    set_twopass_params_based_on_fp_stats(cpi, this_frame_ptr);
   } else {
     // Update the total stats remaining structure.
     if (twopass->stats_buf_ctx->total_left_stats)
