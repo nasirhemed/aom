@@ -39,6 +39,18 @@ int ifd_inspect(insp_frame_data *fd, void *decoder, int skip_not_transform) {
   const CommonModeInfoParams *const mi_params = &cm->mi_params;
   const CommonQuantParams *quant_params = &cm->quant_params;
 
+  // Check for film grain parameters
+  if (cm->cur_frame->film_grain_params_present) {
+    assert(av1_check_grain_params_equiv(&cm->film_grain_params, &cm->cur_frame->film_grain_params));
+    const aom_film_grain_t film_grain_params = cm->film_grain_params;
+
+    fd->film_grain_params_present = 1;
+    memcpy(&fd->film_grain_params, &cm->cur_frame->film_grain_params, sizeof(fd->film_grain_params));
+
+  } else {
+    fd->film_grain_params_present = 0;
+  }
+
   if (fd->mi_rows != mi_params->mi_rows || fd->mi_cols != mi_params->mi_cols) {
     ifd_clear(fd);
     ifd_init_mi_rc(fd, mi_params->mi_rows, mi_params->mi_cols);

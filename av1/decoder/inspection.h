@@ -63,6 +63,9 @@ struct insp_frame_data {
 #if CONFIG_ACCOUNTING
   Accounting *accounting;
 #endif
+
+  int film_grain_params_present;
+  aom_film_grain_t film_grain_params;
   insp_mi_data *mi_grid;
   int16_t frame_number;
   int show_frame;
