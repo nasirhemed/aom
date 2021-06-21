@@ -958,6 +958,12 @@ typedef struct AV1Common {
    * Parameters for film grain synthesis.
    */
   aom_film_grain_t film_grain_params;
+  #if CONFIG_INSPECTION 
+  int is_from_prev;
+  int film_grain_ref;
+
+  #endif
+
 
   /*!
    * Parameters for delta quantization and delta loop filter level.

@@ -3940,7 +3940,13 @@ void av1_read_film_grain_params(AV1_COMMON *cm,
                          "Film grain reference parameters not available");
     }
     uint16_t random_seed = pars->random_seed;
-    *pars = buf->film_grain_params;   // inherit paramaters
+    *pars = buf->film_grain_params;   // inherit paramatejjrs
+
+    #if CONFIG_INSPECTION
+    pars->update_parameters = 0;
+    pars->is_from_prev = 1;
+    pars->film_grain_ref = film_grain_params_ref_idx;
+    #endif
     pars->random_seed = random_seed;  // with new random seed
     return;
   }

@@ -12,6 +12,7 @@
 #include "av1/decoder/inspection.h"
 #include "av1/common/enums.h"
 #include "av1/common/cdef.h"
+#include <math.h>
 
 static void ifd_init_mi_rc(insp_frame_data *fd, int mi_cols, int mi_rows) {
   fd->mi_cols = mi_cols;
@@ -31,6 +32,46 @@ void ifd_clear(insp_frame_data *fd) {
   fd->mi_grid = NULL;
 }
 
+static void gather_data(const aom_film_grain_t *film_grain, insp_frame_data *fd, int luma_stride, int width, int height, int block_size) {
+  const int num_blocks_w = (width + block_size - 1) / block_size;
+  const int num_blocks_h = (height + block_size - 1) / block_size;
+
+  double *block_mean_values = malloc(sizeof(double) * (num_blocks_w * num_blocks_h));
+  double *f_y_values = malloc(sizeof(double) * (num_blocks_w * num_blocks_h));
+
+  fd->block_mean_values = block_mean_values;
+  fd->f_y_values = f_y_values;
+  fd->data_size = num_blocks_h * num_blocks_w;
+
+  int counter = 0;
+  for (int by = 0; by < num_blocks_h; by++) {
+    for (int bx = 0; bx < num_blocks_w; bx++) {
+      double block_mean = 0;
+      double noise_std = 0, noise_mean = 0;
+      for (int yi = 0; yi < block_size; ++yi) {
+        const int y = by * block_size + yi;
+        for (int xi = 0; xi < block_size; ++xi) {
+          const int x = bx * block_size + xi;
+          const double y_diff = film_grain->luma_info.y_prime[y * luma_stride + x];
+          const double film_grain_val =film_grain->luma_info.f_y[y * luma_stride + x] * film_grain->luma_info.g_l[y * luma_stride + x];
+
+          block_mean += film_grain->luma_info.y_prime[y * luma_stride + x];
+          noise_mean += film_grain_val;
+          noise_std = film_grain_val * film_grain_val;
+          
+        }
+      }
+      int n = (block_size * block_size);
+      block_mean /= n;
+      noise_mean /= n;
+      noise_std = sqrt(noise_std / n - noise_mean * noise_mean);
+      block_mean_values[counter] = block_mean;
+      f_y_values[counter++] = noise_std;
+      fprintf(stderr, "%3.2lf %3.2lf %3.2lf", block_mean, noise_mean, noise_std);
+    }
+  }
+}
+
 /* TODO(negge) This function may be called by more than one thread when using
                a multi-threaded decoder and this may cause a data race. */
 int ifd_inspect(insp_frame_data *fd, void *decoder, int skip_not_transform) {
@@ -47,6 +88,7 @@ int ifd_inspect(insp_frame_data *fd, void *decoder, int skip_not_transform) {
     fd->film_grain_params_present = 1;
     memcpy(&fd->film_grain_params, &cm->cur_frame->film_grain_params, sizeof(fd->film_grain_params));
 
+    gather_data(&film_grain_params, fd, film_grain_params.luma_stride, cm->cur_frame->width, cm->cur_frame->height, 32);
   } else {
     fd->film_grain_params_present = 0;
   }

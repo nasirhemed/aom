@@ -177,6 +177,8 @@ static void parse_args(noise_model_args_t *noise_args, int *argc, char **argv) {
 static void print_variance_y(FILE *debug_file, aom_image_t *raw,
                              aom_image_t *denoised, const uint8_t *flat_blocks,
                              int block_size, aom_film_grain_t *grain) {
+
+
   aom_image_t renoised;
   grain->apply_grain = 1;
   grain->random_seed = 7391;
@@ -228,28 +230,6 @@ static void print_variance_y(FILE *debug_file, aom_image_t *raw,
     fprintf(debug_file, "\n");
   }
   fprintf(debug_file, "];\n");
-
-  if (raw->fmt & AOM_IMG_FMT_HIGHBITDEPTH) {
-    fprintf(stderr,
-            "Detailed debug info not supported for high bit"
-            "depth formats\n");
-  } else {
-    fprintf(debug_file, "figure(2); clf;\n");
-    fprintf(debug_file,
-            "scatter(x(:, 2:4:end), x(:, 3:4:end), 'r'); hold on;\n");
-    fprintf(debug_file, "scatter(x(:, 2:4:end), x(:, 4:4:end), 'b');\n");
-    fprintf(debug_file,
-            "plot(linspace(0, 255, length(noise_strength_0)), "
-            "noise_strength_0, 'b');\n");
-    fprintf(debug_file,
-            "title('Scatter plot of intensity vs noise strength');\n");
-    fprintf(debug_file,
-            "legend('Actual', 'Estimated', 'Estimated strength');\n");
-    fprintf(debug_file, "figure(3); clf;\n");
-    fprintf(debug_file, "scatter(x(:, 3:4:end), x(:, 4:4:end), 'k');\n");
-    fprintf(debug_file, "title('Actual vs Estimated');\n");
-    fprintf(debug_file, "pause(3);\n");
-  }
   aom_img_free(&renoised);
 }
 #endif

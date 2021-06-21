@@ -84,6 +84,26 @@ typedef struct {
   int grain_scale_shift;
 
   uint16_t random_seed;
+
+
+  
+  #if CONFIG_INSPECTION
+  
+  int is_from_prev;
+  int film_grain_ref;
+
+  struct raw_data
+  {
+    uint8_t *y;
+    uint8_t *y_prime;
+    int *f_y;
+    int *g_l;
+  } luma_info;
+  
+  int luma_info_index;
+  int luma_stride;
+  #endif
+
   // This structure is compared element-by-element in the function
   // av1_check_grain_params_equiv: this function must be updated if any changes
   // are made to this structure.
@@ -166,7 +186,7 @@ static INLINE int av1_check_grain_params_equiv(
  * \param[in]    luma_stride      luma plane stride
  * \param[in]    chroma_stride    chroma plane stride
  */
-int av1_add_film_grain_run(const aom_film_grain_t *grain_params, uint8_t *luma,
+int av1_add_film_grain_run(aom_film_grain_t *grain_params, uint8_t *luma,
                            uint8_t *cb, uint8_t *cr, int height, int width,
                            int luma_stride, int chroma_stride,
                            int use_high_bit_depth, int chroma_subsamp_y,
@@ -182,7 +202,7 @@ int av1_add_film_grain_run(const aom_film_grain_t *grain_params, uint8_t *luma,
  * \param[in]    src              Source image
  * \param[out]   dst              Resulting image with grain
  */
-int av1_add_film_grain(const aom_film_grain_t *grain_params,
+int av1_add_film_grain(aom_film_grain_t *grain_params,
                        const aom_image_t *src, aom_image_t *dst);
 
 #ifdef __cplusplus

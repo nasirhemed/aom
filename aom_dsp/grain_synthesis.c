@@ -237,6 +237,14 @@ static int grain_max;
 
 static uint16_t random_register = 0;  // random number generator register
 
+
+static void init_raw_data_struct(aom_film_grain_t * film, int size) {
+  film->luma_info.y = (uint8_t *)aom_malloc(sizeof(uint8_t) * size);
+  film->luma_info.y_prime = (uint8_t *)aom_malloc(sizeof(uint8_t) * size);
+  film->luma_info.g_l = (int *)aom_malloc(sizeof(int) * size);
+  film->luma_info.f_y = (int *)aom_malloc(sizeof(int) * size);
+}
+
 static void init_arrays(const aom_film_grain_t *params, int luma_stride,
                         int chroma_stride, int ***pred_pos_luma_p,
                         int ***pred_pos_chroma_p, int **luma_grain_block,
@@ -570,7 +578,7 @@ static int scale_LUT(int *scaling_lut, int index, int bit_depth) {
                              (bit_depth - 8));
 }
 
-static void add_noise_to_block(const aom_film_grain_t *params, uint8_t *luma,
+static void add_noise_to_block(aom_film_grain_t *params, uint8_t *luma,
                                uint8_t *cb, uint8_t *cr, int luma_stride,
                                int chroma_stride, int *luma_grain,
                                int *cb_grain, int *cr_grain,
@@ -673,6 +681,24 @@ static void add_noise_to_block(const aom_film_grain_t *params, uint8_t *luma,
   if (apply_y) {
     for (int i = 0; i < (half_luma_height << 1); i++) {
       for (int j = 0; j < (half_luma_width << 1); j++) {
+
+        if (i == 0 && j == 0) {
+          // TODO: Do something
+          // TODO: Pull out all f_y values
+          // TODO: pull out y and f_y * g_l
+          // Average of the bin vals 
+          // Use all those to produce
+          // For every y value, 
+        }
+        uint8_t y = luma[i * luma_stride + j];
+        int f_y = scale_LUT(scaling_lut_y, luma[i * luma_stride + j], 8);
+        int g_l = luma_grain[i * luma_grain_stride + j];
+        int y_prime = luma[i * luma_stride + j] +
+                      ((scale_LUT(scaling_lut_y, luma[i * luma_stride + j], 8) *
+                            luma_grain[i * luma_grain_stride + j] +
+                        rounding_offset) >>
+                       params->scaling_shift);
+
         luma[i * luma_stride + j] =
             clamp(luma[i * luma_stride + j] +
                       ((scale_LUT(scaling_lut_y, luma[i * luma_stride + j], 8) *
@@ -680,6 +706,14 @@ static void add_noise_to_block(const aom_film_grain_t *params, uint8_t *luma,
                         rounding_offset) >>
                        params->scaling_shift),
                   min_luma, max_luma);
+
+        params->luma_info.f_y[params->luma_info_index + (i * luma_grain_stride + j)] = f_y;
+        params->luma_info.g_l[params->luma_info_index + (i * luma_grain_stride + j)] = g_l;
+        params->luma_info.y[params->luma_info_index + (i * luma_grain_stride + j)] = y;
+        params->luma_info.y_prime[params->luma_info_index + (i * luma_grain_stride + j)] = y_prime;
+  
+        fprintf(stderr, "(%d, %d, %d):%u:%d:%d:%d\n", i, j, luma_stride, y, g_l, f_y, y_prime);
+        
       }
     }
   }
@@ -914,7 +948,7 @@ static void hor_boundary_overlap(int *top_block, int top_stride,
   }
 }
 
-int av1_add_film_grain(const aom_film_grain_t *params, const aom_image_t *src,
+int av1_add_film_grain(aom_film_grain_t *params, const aom_image_t *src,
                        aom_image_t *dst) {
   uint8_t *luma, *cb, *cr;
   int height, width, luma_stride, chroma_stride;
@@ -1020,7 +1054,7 @@ int av1_add_film_grain(const aom_film_grain_t *params, const aom_image_t *src,
       use_high_bit_depth, chroma_subsamp_y, chroma_subsamp_x, mc_identity);
 }
 
-int av1_add_film_grain_run(const aom_film_grain_t *params, uint8_t *luma,
+int av1_add_film_grain_run(aom_film_grain_t *params, uint8_t *luma,
                            uint8_t *cb, uint8_t *cr, int height, int width,
                            int luma_stride, int chroma_stride,
                            int use_high_bit_depth, int chroma_subsamp_y,
@@ -1115,6 +1149,18 @@ int av1_add_film_grain_run(const aom_film_grain_t *params, uint8_t *luma,
     init_scaling_function(params->scaling_points_cr, params->num_cr_points,
                           scaling_lut_cr);
   }
+
+  init_raw_data_struct(params, height * width);
+  params->luma_stride = luma_stride;
+
+  fprintf(stderr, "scaling lut values: ");
+  for (int i = 0; i < 255; i++) {
+    fprintf(stderr, "%d ", scaling_lut_y[i]);
+  }
+  fprintf(stderr, "\n");
+
+  fprintf(stderr, "index:y:g_l:f_y:y_prime\n");
+
   for (int y = 0; y < height / 2; y += (luma_subblock_size_y >> 1)) {
     init_random_generator(y * 2, params->random_seed);
 
@@ -1158,6 +1204,10 @@ int av1_add_film_grain_run(const aom_film_grain_t *params, uint8_t *luma,
                    (height - (y << 1)) >> chroma_subsamp_y));
 
         int i = y ? 1 : 0;
+
+        params->luma_info_index = ((y + i) << 1) * luma_stride + (x << 1);
+
+        fprintf(stderr, "=====(y (h), x (w), luma_stride): (%d, %d, %d)=====\n", ((y + i) << 1), (x << 1), luma_stride);
 
         if (use_high_bit_depth) {
           add_noise_to_block_hbd(
@@ -1243,6 +1293,8 @@ int av1_add_film_grain_run(const aom_film_grain_t *params, uint8_t *luma,
                        ((x ? 1 : 0) << (1 - chroma_subsamp_x)),
                    (width - ((x ? x + 1 : 0) << 1)) >> chroma_subsamp_x),
             2 >> chroma_subsamp_y);
+  
+        fprintf(stderr, "=====(y (h), x (w), luma_stride): (%d, %d, %d)=====\n", ((y) << 1), ((x) << 1), luma_stride);
 
         if (use_high_bit_depth) {
           add_noise_to_block_hbd(
@@ -1275,6 +1327,8 @@ int av1_add_film_grain_run(const aom_film_grain_t *params, uint8_t *luma,
 
       int i = overlap && y ? 1 : 0;
       int j = overlap && x ? 1 : 0;
+
+      fprintf(stderr, "=====(y (h), x (w), luma_stride): (%d, %d, %d)=====\n", ((y + i) << 1), ((x + j) << 1), luma_stride);
 
       if (use_high_bit_depth) {
         add_noise_to_block_hbd(
@@ -1400,6 +1454,8 @@ int av1_add_film_grain_run(const aom_film_grain_t *params, uint8_t *luma,
       }
     }
   }
+
+  fprintf(stderr, ">>>>>>>>>>>>> FRAME DONE >>>>>>>>>>\n\n\n");
 
   dealloc_arrays(params, &pred_pos_luma, &pred_pos_chroma, &luma_grain_block,
                  &cb_grain_block, &cr_grain_block, &y_line_buf, &cb_line_buf,
