@@ -889,7 +889,7 @@ static void set_good_speed_features_framesize_independent(
     // TODO(any): Move this from speed 3 to speed 2 so that TPL multithread
     // is re-enabled at speed 2. This also makes encoder faster. After TPL MT is
     // fixed and works with compound pred, we can re-evaluate this feature.
-    sf->tpl_sf.allow_compound_pred = 0;
+    sf->tpl_sf.allow_compound_pred = 1;
     sf->tpl_sf.prune_ref_frames_in_tpl = 1;
   }
 
