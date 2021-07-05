@@ -511,7 +511,8 @@ int put_int_arr(char *buffer, int *arr, int size) {
   *(buf++) = '[';
   for (int i = 0; i < size; i++) {
     buf += put_num(buf, 0, arr[i], 0);
-    *(buf++) = ',';
+    if (i < size - 1)
+      *(buf++) = ',';
   }
   *(buf++) = ']';
 
@@ -535,6 +536,8 @@ int put_film_grain_params(char *buffer) {
     *(buf++) = '[';
     for (int i = 0; i < film_grain.num_y_points; i++) {
       buf += put_int_arr(buf, film_grain.scaling_points_y[i], sizeof(film_grain.scaling_points_y[i])/ sizeof(int));
+      if (i < film_grain.num_y_points - 1)
+        *(buf++) = ',';
     }
     buf += put_str(buf, "],\n");
 
@@ -544,6 +547,8 @@ int put_film_grain_params(char *buffer) {
     *(buf++) = '[';
     for (int i = 0; i < film_grain.num_cb_points; i++) {
       buf += put_int_arr(buf, film_grain.scaling_points_cb[i], sizeof(film_grain.scaling_points_cb[i])/ sizeof(int));
+      if (i < film_grain.num_cb_points - 1)
+        *(buf++) = ',';
     }
     buf += put_str(buf, "],\n");
     buf += snprintf(buf, MAX_BUFFER, "    \"num_cr_points\": %d,\n", film_grain.num_cr_points);
@@ -552,8 +557,23 @@ int put_film_grain_params(char *buffer) {
     *(buf++) = '[';
     for (int i = 0; i < film_grain.num_cr_points; i++) {
       buf += put_int_arr(buf, film_grain.scaling_points_cr[i], sizeof(film_grain.scaling_points_cr[i])/ sizeof(int));
+      if (i < film_grain.num_cr_points - 1)
+        *(buf++) = ',';
     }
     buf += put_str(buf, "],\n");
+
+    buf += put_str(buf, "    \"scaling_lut_y\": ");
+    buf += put_int_arr(buf, film_grain.scaling_lut_y, sizeof(film_grain.scaling_lut_y)/ sizeof(int));
+    buf += put_str(buf, ",\n");
+
+    buf += put_str(buf, "    \"scaling_lut_cb\": ");
+    buf += put_int_arr(buf, film_grain.scaling_lut_cb, sizeof(film_grain.scaling_lut_cb)/ sizeof(int));
+    buf += put_str(buf, ",\n");
+
+    buf += put_str(buf, "    \"scaling_lut_cr\": ");
+    buf += put_int_arr(buf, film_grain.scaling_lut_cr, sizeof(film_grain.scaling_lut_cr)/ sizeof(int));
+    buf += put_str(buf, ",\n");
+
 
     buf += snprintf(buf, MAX_BUFFER, "    \"scaling_shift\": %d,\n", film_grain.scaling_shift);
     buf += snprintf(buf, MAX_BUFFER, "    \"ar_coeff_lag\": %d,\n", film_grain.ar_coeff_lag);
@@ -579,7 +599,7 @@ int put_film_grain_params(char *buffer) {
     buf += snprintf(buf, MAX_BUFFER, "    \"bit_depth\": %d,\n", film_grain.bit_depth);
     buf += snprintf(buf, MAX_BUFFER, "    \"chroma_scaling_from_luma\": %d,\n", film_grain.chroma_scaling_from_luma);
     buf += snprintf(buf, MAX_BUFFER, "    \"grain_scale_shift\": %d,\n", film_grain.grain_scale_shift);
-    buf += snprintf(buf, MAX_BUFFER, "    \"random_seed\": %d,\n", film_grain.random_seed); 
+    buf += snprintf(buf, MAX_BUFFER, "    \"random_seed\": %d\n", film_grain.random_seed); 
     
     buf += put_str(buf, "},\n");
     
