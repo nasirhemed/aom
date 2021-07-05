@@ -826,6 +826,11 @@ static aom_image_t *decoder_get_frame(aom_codec_alg_priv_t *ctx,
         if (pbi->skip_film_grain) grain_params->apply_grain = 0;
         aom_image_t *res =
             add_grain_if_needed(ctx, img, &ctx->image_with_grain, grain_params);
+
+#if CONFIG_INSPECTION
+        cm->img = res;
+#endif
+
         if (!res) {
           aom_internal_error(&pbi->error, AOM_CODEC_CORRUPT_FRAME,
                              "Grain systhesis failed\n");

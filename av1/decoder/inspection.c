@@ -86,9 +86,13 @@ int ifd_inspect(insp_frame_data *fd, void *decoder, int skip_not_transform) {
     const aom_film_grain_t film_grain_params = cm->film_grain_params;
 
     fd->film_grain_params_present = 1;
-    memcpy(&fd->film_grain_params, &cm->cur_frame->film_grain_params, sizeof(fd->film_grain_params));
+    // memcpy(&fd->film_grain_params, &cm->cur_frame->film_grain_params, sizeof(fd->film_grain_params));
+    // fd->luma_grain_block = cm->img->luma_grain_block;
+    // memcpy(fd->scaling_lut_y, cm->img->scaling_lut_y, sizeof(cm->img->scaling_lut_y));
+    // fd->luma_grain_size = cm->img->luma_grain_size;
 
-    gather_data(&film_grain_params, fd, film_grain_params.luma_stride, cm->cur_frame->width, cm->cur_frame->height, 32);
+    
+    // gather_data(&film_grain_params, fd, film_grain_params.luma_stride, cm->cur_frame->width, cm->cur_frame->height, 32);
   } else {
     fd->film_grain_params_present = 0;
   }

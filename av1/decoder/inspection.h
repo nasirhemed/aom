@@ -67,6 +67,10 @@ struct insp_frame_data {
   int film_grain_params_present;
   aom_film_grain_t film_grain_params;
 
+  int scaling_lut_y[256];
+  int *luma_grain_block;
+  int luma_grain_size;
+
   int data_size;
   double *block_mean_values;
   double *f_y_values;

@@ -1049,16 +1049,29 @@ int av1_add_film_grain(aom_film_grain_t *params, const aom_image_t *src,
   luma_stride = dst->stride[AOM_PLANE_Y] >> use_high_bit_depth;
   chroma_stride = dst->stride[AOM_PLANE_U] >> use_high_bit_depth;
 
+#if CONFIG_INSPECTION
+  return av1_add_film_grain_run(params, luma, cb, cr, height, width, luma_stride, chroma_stride,
+      use_high_bit_depth, chroma_subsamp_y, chroma_subsamp_x, mc_identity, dst);
+#else
   return av1_add_film_grain_run(
       params, luma, cb, cr, height, width, luma_stride, chroma_stride,
       use_high_bit_depth, chroma_subsamp_y, chroma_subsamp_x, mc_identity);
+#endif
 }
 
+#if CONFIG_INSPECTION
+int av1_add_film_grain_run(aom_film_grain_t *params, uint8_t *luma,
+                           uint8_t *cb, uint8_t *cr, int height, int width,
+                           int luma_stride, int chroma_stride,
+                           int use_high_bit_depth, int chroma_subsamp_y,
+                           int chroma_subsamp_x, int mc_identity, aom_image_t *dst) {
+#else
 int av1_add_film_grain_run(aom_film_grain_t *params, uint8_t *luma,
                            uint8_t *cb, uint8_t *cr, int height, int width,
                            int luma_stride, int chroma_stride,
                            int use_high_bit_depth, int chroma_subsamp_y,
                            int chroma_subsamp_x, int mc_identity) {
+#endif
   int **pred_pos_luma;
   int **pred_pos_chroma;
   int *luma_grain_block;
@@ -1456,6 +1469,12 @@ int av1_add_film_grain_run(aom_film_grain_t *params, uint8_t *luma,
   }
 
   fprintf(stderr, ">>>>>>>>>>>>> FRAME DONE >>>>>>>>>>\n\n\n");
+
+#if CONFIG_INSPECTION
+  memcpy(dst->scaling_lut_y, scaling_lut_y, sizeof(scaling_lut_y));
+  memcpy(dst->luma_grain_block, luma_grain_block,sizeof(*luma_grain_block) * luma_block_size_y * luma_block_size_x);
+  dst->luma_grain_size = luma_block_size_y * luma_block_size_x;
+#endif
 
   dealloc_arrays(params, &pred_pos_luma, &pred_pos_chroma, &luma_grain_block,
                  &cb_grain_block, &cr_grain_block, &y_line_buf, &cb_line_buf,

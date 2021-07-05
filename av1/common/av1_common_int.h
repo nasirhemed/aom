@@ -958,11 +958,6 @@ typedef struct AV1Common {
    * Parameters for film grain synthesis.
    */
   aom_film_grain_t film_grain_params;
-  #if CONFIG_INSPECTION 
-  int is_from_prev;
-  int film_grain_ref;
-
-  #endif
 
 
   /*!
@@ -1069,6 +1064,13 @@ typedef struct AV1Common {
 #if CONFIG_LPF_MASK
   int is_decoding;
 #endif  // CONFIG_LPF_MASK
+
+#if CONFIG_INSPECTION 
+  int is_from_prev;
+  int film_grain_ref;
+
+  aom_image_t *img;
+#endif
 } AV1_COMMON;
 
 /*!\cond */
