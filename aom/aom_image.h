@@ -225,6 +225,9 @@ typedef struct aom_image {
 
 #if CONFIG_INSPECTION
   int *luma_grain_block;
+  int luma_grain_stride;
+  int luma_block_size_x;
+  int luma_block_size_y;
   int luma_grain_size;
   int scaling_lut_y[256];
 #endif
