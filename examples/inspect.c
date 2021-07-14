@@ -520,20 +520,20 @@ int put_int_arr(char *buffer, int *arr, int size) {
   return (int)(buf - buffer);
 }
 
-int put_double_arr(char *buffer, double *arr, int size) {
-  char *buf = buffer;
+// int put_double_arr(char *buffer, double *arr, int size) {
+//   char *buf = buffer;
 
-  int i = 0;
-  *(buf++) = '[';
-  for (i = 0; i < size - 1; i++) {
-    buf += snprintf(buf, MAX_BUFFER, "%3.2lf", arr[i]);
-    *(buf++) = ',';
-  }
-  buf += put_num(buf, 0, arr[i++], 0);
-  *(buf++) = ']';
+//   int i = 0;
+//   *(buf++) = '[';
+//   for (i = 0; i < size - 1; i++) {
+//     buf += snprintf(buf, MAX_BUFFER, "%3.2lf", arr[i]);
+//     *(buf++) = ',';
+//   }
+//   buf += put_num(buf, 0, arr[i++], 0);
+//   *(buf++) = ']';
 
-  return (int)(buf - buffer);
-}
+//   return (int)(buf - buffer);
+// }
 
 int put_film_grain_params(char *buffer) {
 
@@ -603,15 +603,7 @@ int put_film_grain_params(char *buffer) {
     buf += snprintf(buf, MAX_BUFFER, "    \"bit_depth\": %d,\n", film_grain.bit_depth);
     buf += snprintf(buf, MAX_BUFFER, "    \"chroma_scaling_from_luma\": %d,\n", film_grain.chroma_scaling_from_luma);
     buf += snprintf(buf, MAX_BUFFER, "    \"grain_scale_shift\": %d,\n", film_grain.grain_scale_shift);
-    buf += snprintf(buf, MAX_BUFFER, "    \"random_seed\": %d,\n", film_grain.random_seed); 
-    
-    buf += put_str(buf, "    \"block_mean_values\": ");
-    buf += put_double_arr(buf, frame_data.block_mean_values, frame_data.data_size);
-    buf += put_str(buf, ", \n");    
-
-    buf += put_str(buf, "    \"film_values\": ");
-    buf += put_double_arr(buf, frame_data.f_y_values, frame_data.data_size);
-    buf += put_str(buf, ", \n");
+    buf += snprintf(buf, MAX_BUFFER, "    \"random_seed\": %d\n", film_grain.random_seed); 
     
     buf += put_str(buf, "},\n");
     
@@ -967,6 +959,18 @@ int get_plane_width(int plane) { return aom_img_plane_width(img, plane); }
 
 EMSCRIPTEN_KEEPALIVE
 int get_plane_height(int plane) { return aom_img_plane_height(img, plane); }
+
+EMSCRIPTEN_KEEPALIVE
+int *get_film_grain_block(int plane) { return img->luma_grain_block; }
+
+EMSCRIPTEN_KEEPALIVE
+int *get_film_grain_stride(int plane) { return img->luma_grain_stride; }
+
+EMSCRIPTEN_KEEPALIVE
+int *get_film_grain_width(int plane) { return img->luma_block_size_x; }
+
+EMSCRIPTEN_KEEPALIVE
+int *get_film_grain_height(int plane) { return img->luma_block_size_y; }
 
 EMSCRIPTEN_KEEPALIVE
 int get_frame_width() { return info->frame_width; }
