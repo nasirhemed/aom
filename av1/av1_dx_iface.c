@@ -585,11 +585,6 @@ static aom_codec_err_t decoder_decode(aom_codec_alg_priv_t *ctx,
                                       void *user_priv) {
   aom_codec_err_t res = AOM_CODEC_OK;
 
-#if CONFIG_INSPECTION
-  if (user_priv != 0) {
-    return decoder_inspect(ctx, data, data_sz, user_priv);
-  }
-#endif
   // Release any pending output frames from the previous decoder_decode call.
   // We need to do this even if the decoder is being flushed or the input
   // arguments are invalid.
@@ -612,6 +607,12 @@ static aom_codec_err_t decoder_decode(aom_codec_alg_priv_t *ctx,
     }
     ctx->num_grain_image_frame_buffers = 0;
   }
+
+#if CONFIG_INSPECTION
+  if (user_priv != 0) {
+    return decoder_inspect(ctx, data, data_sz, user_priv);
+  }
+#endif
 
   /* Sanity checks */
   /* NULL data ptr allowed if data_sz is 0 too */
