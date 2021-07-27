@@ -25,6 +25,26 @@ extern "C" {
 #include "aom_dsp/aom_dsp_common.h"
 #include "aom/aom_image.h"
 
+#if CONFIG_INSPECTION
+#define GRAIN_WIDTH 82
+#define GRAIN_HEIGHT 73
+
+#define SUB_GRAIN_WIDTH 44
+#define SUB_GRAIN_HEIGHT 38
+
+#define iclip(v, min, max) v < min ? min : v > max ? max : v;
+#endif
+
+#if CONFIG_INSPECTION
+
+typedef struct {
+    int buf[GRAIN_HEIGHT][GRAIN_WIDTH];
+    int width;
+    int height;
+} grain_values;
+
+#endif
+
 /*!\brief Structure containing film grain synthesis parameters for a frame
  *
  * This structure contains input parameters for film grain synthesis
@@ -89,6 +109,9 @@ typedef struct {
   int scaling_lut_y[256];
   int scaling_lut_cb[256];
   int scaling_lut_cr[256];
+
+  grain_values grain_data[3];
+
 #endif
   // This structure is compared element-by-element in the function
   // av1_check_grain_params_equiv: this function must be updated if any changes
@@ -190,6 +213,20 @@ int av1_add_film_grain_run(const aom_film_grain_t *grain_params, uint8_t *luma,
  */
 int av1_add_film_grain(const aom_film_grain_t *grain_params,
                        const aom_image_t *src, aom_image_t *dst);
+
+#if CONFIG_INSPECTION 
+void generate_grain_y_c(grain_values *grain_data,
+                        const aom_film_grain_t *data);
+
+void generate_grain_uv_c(grain_values *grain_data,
+                    const grain_values *grain_data_y,
+                    const aom_film_grain_t *const data, const int uv,
+                    const int subx, const int suby);
+
+void init_scaling_function_extern(const int scaling_points[][2], int num_points,
+                                  int scaling_lut[]);
+
+#endif
 
 #ifdef __cplusplus
 }  // extern "C"
