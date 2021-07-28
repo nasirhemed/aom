@@ -226,6 +226,10 @@ void generate_grain_uv_c(grain_values *grain_data,
 void init_scaling_function_extern(const int scaling_points[][2], int num_points,
                                   int scaling_lut[]);
 
+int generate_grain_image(const aom_film_grain_t *params, int *luma, int *cb, int *cr, int height, int width,
+                           int luma_stride, int chroma_stride, int chroma_subsamp_y,
+                           int chroma_subsamp_x, int mc_identity);
+
 #endif
 
 #ifdef __cplusplus

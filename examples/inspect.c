@@ -1092,6 +1092,9 @@ int get_frame_width() { return info->frame_width; }
 EMSCRIPTEN_KEEPALIVE
 int get_frame_height() { return info->frame_height; }
 
+EMSCRIPTEN_KEEPALIVE
+int *get_grain_values(int plane) { return img->grain_block[plane]; }
+
 static void parse_args(char **argv) {
   char **argi, **argj;
   struct arg arg;
