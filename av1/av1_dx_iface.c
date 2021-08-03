@@ -590,15 +590,15 @@ static aom_codec_err_t decoder_decode(aom_codec_alg_priv_t *ctx,
   // arguments are invalid.
   if (ctx->frame_worker) {
     BufferPool *const pool = ctx->buffer_pool;
-    lock_buffer_pool(pool);
-    AVxWorker *const worker = ctx->frame_worker;
-    FrameWorkerData *const frame_worker_data = (FrameWorkerData *)worker->data1;
-    struct AV1Decoder *pbi = frame_worker_data->pbi;
-    for (size_t j = 0; j < pbi->num_output_frames; j++) {
-      decrease_ref_count(pbi->output_frames[j], pool);
-    }
-    pbi->num_output_frames = 0;
-    unlock_buffer_pool(pool);
+    // lock_buffer_pool(pool);
+    // AVxWorker *const worker = ctx->frame_worker;
+    // FrameWorkerData *const frame_worker_data = (FrameWorkerData *)worker->data1;
+    // struct AV1Decoder *pbi = frame_worker_data->pbi;
+    // for (size_t j = 0; j < pbi->num_output_frames; j++) {
+    //   decrease_ref_count(pbi->output_frames[j], pool);
+    // }
+    // pbi->num_output_frames = 0;
+    // unlock_buffer_pool(pool);
     for (size_t j = 0; j < ctx->num_grain_image_frame_buffers; j++) {
       pool->release_fb_cb(pool->cb_priv, &ctx->grain_image_frame_buffers[j]);
       ctx->grain_image_frame_buffers[j].data = NULL;

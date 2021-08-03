@@ -1016,9 +1016,9 @@ int av1_add_film_grain(const aom_film_grain_t *params, const aom_image_t *src,
   chroma_stride = dst->stride[AOM_PLANE_U] >> use_high_bit_depth;
 
 #if CONFIG_INSPECTION
-  dst->grain_block[AOM_PLANE_Y] = aom_malloc(sizeof(int) * width * height);  
-  dst->grain_block[AOM_PLANE_U] = aom_malloc(sizeof(int) * width * height);
-  dst->grain_block[AOM_PLANE_V] = aom_malloc(sizeof(int) * width * height);
+  dst->grain_block[AOM_PLANE_Y] = aom_malloc(sizeof(uint8_t) * width * height);  
+  dst->grain_block[AOM_PLANE_U] = aom_malloc(sizeof(uint8_t) * width * height);
+  dst->grain_block[AOM_PLANE_V] = aom_malloc(sizeof(uint8_t) * width * height);
 
   generate_grain_image(params, dst->grain_block[AOM_PLANE_Y], dst->grain_block[AOM_PLANE_U],
   dst->grain_block[AOM_PLANE_V], height, width, luma_stride, chroma_stride, 
@@ -1552,8 +1552,8 @@ void init_scaling_function_extern(const int scaling_points[][2], int num_points,
 
 #define round_divide(x, y) (x + (y / 2)) / y
 
-void fill_block(const aom_film_grain_t *params, int *luma,
-                               int *cb, int *cr, int luma_stride,
+void fill_block(const aom_film_grain_t *params, uint8_t *luma,
+                               uint8_t *cb, uint8_t *cr, int luma_stride,
                                int chroma_stride, int *luma_grain,
                                int *cb_grain, int *cr_grain,
                                int luma_grain_stride, int chroma_grain_stride,
@@ -1590,7 +1590,7 @@ void fill_block(const aom_film_grain_t *params, int *luma,
 
 }
 
-int generate_grain_image(const aom_film_grain_t *params, int *luma, int *cb, int *cr, int height, int width,
+int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t *cb, uint8_t *cr, int height, int width,
                            int luma_stride, int chroma_stride, int chroma_subsamp_y,
                            int chroma_subsamp_x, int mc_identity) {
 
