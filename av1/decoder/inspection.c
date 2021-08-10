@@ -44,8 +44,6 @@ int ifd_inspect(insp_frame_data *fd, void *decoder, int skip_not_transform) {
   // Check for film grain parameters
   if (cm->cur_frame->film_grain_params_present && cm->cur_frame->film_grain_params.apply_grain) {
     assert(av1_check_grain_params_equiv(&cm->film_grain_params, &cm->cur_frame->film_grain_params));
-    const aom_film_grain_t film_grain_params = cm->film_grain_params;
-
     fd->film_grain_params_present = 1;
 
 

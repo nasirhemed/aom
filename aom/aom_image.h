@@ -226,6 +226,7 @@ typedef struct aom_image {
 #if CONFIG_INSPECTION
 
   unsigned char *grain_block[3];
+  unsigned char *scaled_grain_block[3];
 
 #endif
 } aom_image_t;   /**< alias for struct aom_image */

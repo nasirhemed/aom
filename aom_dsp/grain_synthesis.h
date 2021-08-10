@@ -226,7 +226,26 @@ void generate_grain_uv_c(grain_values *grain_data,
 void init_scaling_function_extern(const int scaling_points[][2], int num_points,
                                   int scaling_lut[]);
 
-int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t *cb, uint8_t *cr, int height, int width,
+/*!\brief Add film grain
+ *
+ * Add film grain to an image
+ *
+ * Returns 0 for success, -1 for failure
+ *
+ * \param[in]    params           Grain parameters
+ * \param[in]    luma             grain luma plane (contains luma pixels)
+ * \param[in]    cb               grain cb plane (contains cb pixels)
+ * \param[in]    cr               grain cr plane (contains cr pixels)
+ * \param[in]    scaled_luma      scaled luma plane
+ * \param[in]    scaled_cb        scaled cb plane
+ * \param[in]    scaled_cr        scaled cr plane
+ * \param[in]    height           luma plane height
+ * \param[in]    width            luma plane width
+ * \param[in]    luma_stride      luma plane stride
+ * \param[in]    chroma_stride    chroma plane stride
+ */
+int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t *cb, uint8_t *cr, 
+                           int *scaled_luma, int *scaled_cb, int *scaled_cr, int height, int width,
                            int luma_stride, int chroma_stride, int chroma_subsamp_y,
                            int chroma_subsamp_x, int mc_identity);
 

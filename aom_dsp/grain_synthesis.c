@@ -1016,13 +1016,46 @@ int av1_add_film_grain(const aom_film_grain_t *params, const aom_image_t *src,
   chroma_stride = dst->stride[AOM_PLANE_U] >> use_high_bit_depth;
 
 #if CONFIG_INSPECTION
+
+
   dst->grain_block[AOM_PLANE_Y] = aom_malloc(sizeof(uint8_t) * width * height);  
-  dst->grain_block[AOM_PLANE_U] = aom_malloc(sizeof(uint8_t) * width * height);
-  dst->grain_block[AOM_PLANE_V] = aom_malloc(sizeof(uint8_t) * width * height);
+  dst->grain_block[AOM_PLANE_U] = aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y));
+  dst->grain_block[AOM_PLANE_V] = aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y));
+
+  dst->scaled_grain_block[AOM_PLANE_Y] = aom_malloc(sizeof(uint8_t) * width * height);  
+  dst->scaled_grain_block[AOM_PLANE_U] = aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y));
+  dst->scaled_grain_block[AOM_PLANE_V] = aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y));
+  
+  int *scaled_luma = aom_malloc(sizeof(int) * width * height);
+  int *scaled_cb = aom_malloc(sizeof(int) * (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y));
+  int *scaled_cr = aom_malloc(sizeof(int) * (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y));
+
+  for (int i = 0; i < width * height; i++) {
+    dst->grain_block[AOM_PLANE_Y][i] = dst->planes[AOM_PLANE_Y][i];
+  }
+
+  for (int i = 0; i < (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y); i++) {
+    dst->grain_block[AOM_PLANE_U][i] = dst->planes[AOM_PLANE_U][i];
+    dst->grain_block[AOM_PLANE_V][i] = dst->planes[AOM_PLANE_V][i];
+  }
+
+
+
 
   generate_grain_image(params, dst->grain_block[AOM_PLANE_Y], dst->grain_block[AOM_PLANE_U],
-  dst->grain_block[AOM_PLANE_V], height, width, luma_stride, chroma_stride, 
+  dst->grain_block[AOM_PLANE_V], scaled_luma, scaled_cb, scaled_cr, height, width, luma_stride, chroma_stride, 
   chroma_subsamp_y, chroma_subsamp_x, mc_identity);
+
+  for (int i = 0; i < width * height; i++) {
+    dst->scaled_grain_block[AOM_PLANE_Y][i] = (uint8_t) scaled_luma[i];
+  }
+
+
+  for (int i = 0; i < (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y); i++) {
+    dst->scaled_grain_block[AOM_PLANE_U][i] = (uint8_t) scaled_cb[i];
+    dst->scaled_grain_block[AOM_PLANE_V][i] = (uint8_t) scaled_cr[i];
+  }
+
 #endif
 
   return av1_add_film_grain_run(
@@ -1552,30 +1585,97 @@ void init_scaling_function_extern(const int scaling_points[][2], int num_points,
 
 #define round_divide(x, y) (x + (y / 2)) / y
 
-void fill_block(const aom_film_grain_t *params, uint8_t *luma,
-                               uint8_t *cb, uint8_t *cr, int luma_stride,
+static void fill_block(const aom_film_grain_t *params, uint8_t *luma,
+                               uint8_t *cb, uint8_t *cr, int *scaled_luma, int *scaled_cb, int *scaled_cr, int luma_stride,
                                int chroma_stride, int *luma_grain,
                                int *cb_grain, int *cr_grain,
                                int luma_grain_stride, int chroma_grain_stride,
                                int half_luma_height, int half_luma_width,
                                int bit_depth, int chroma_subsamp_y,
-                               int chroma_subsamp_x, int mc_identity, int grain_max, int grain_min) {
+                               int chroma_subsamp_x, int mc_identity, int (*sc_max_min)[2]) {
 
 
+  int cb_mult = params->cb_mult - 128;            // fixed scale
+  int cb_luma_mult = params->cb_luma_mult - 128;  // fixed scale
+  // offset value depends on the bit depth
+  int cb_offset = (params->cb_offset << (bit_depth - 8)) - (1 << bit_depth);
+
+
+  int cr_mult = params->cr_mult - 128;            // fixed scale
+  int cr_luma_mult = params->cr_luma_mult - 128;  // fixed scale
+  // offset value depends on the bit depth
+  int cr_offset = (params->cr_offset << (bit_depth - 8)) - (1 << bit_depth);
+
+  int rounding_offset = (1 << (params->ar_coeff_shift - 1));
+  
   int apply_y = params->num_y_points > 0 ? 1 : 0;
   int apply_cb =
       (params->num_cb_points > 0 || params->chroma_scaling_from_luma) ? 1 : 0;
   int apply_cr =
       (params->num_cr_points > 0 || params->chroma_scaling_from_luma) ? 1 : 0;
 
+
+  if (params->chroma_scaling_from_luma) {
+    cb_mult = 0;        // fixed scale
+    cb_luma_mult = 64;  // fixed scale
+    cb_offset = 0;
+
+    cr_mult = 0;        // fixed scale
+    cr_luma_mult = 64;  // fixed scale
+    cr_offset = 0;
+  }
   
   for (int i = 0; i < (half_luma_height << (1 - chroma_subsamp_y)); i++) {
     for (int j = 0; j < (half_luma_width << (1 - chroma_subsamp_x)); j++) {
+      int average_luma = 0;
+      if (chroma_subsamp_x) {
+        average_luma = (luma[(i << chroma_subsamp_y) * luma_stride +
+                             (j << chroma_subsamp_x)] +
+                        luma[(i << chroma_subsamp_y) * luma_stride +
+                             (j << chroma_subsamp_x) + 1] +
+                        1) >>
+                       1;
+      } else {
+        average_luma = luma[(i << chroma_subsamp_y) * luma_stride + j];
+      }
+      
       if (apply_cb) {
-        cb[i * chroma_stride + j] = round_divide((255 * (cb_grain[i * chroma_grain_stride] - grain_min)),  (grain_max - grain_min));
+        scaled_cb[i *chroma_stride + j] = ((scale_LUT(scaling_lut_cb,
+                            clamp(((average_luma * cb_luma_mult +
+                                    cb_mult * cb[i * chroma_stride + j]) >>
+                                   6) +
+                                      cb_offset,
+                                  0, (256 << (bit_depth - 8)) - 1),
+                            bit_depth) *
+                      cb_grain[i * chroma_grain_stride + j] +
+                  rounding_offset) >>
+                 params->scaling_shift);
+        if (scaled_cb[i * chroma_stride + j] < sc_max_min[1][0]) {
+          sc_max_min[1][0] = scaled_cb[i * chroma_stride + j];
+        }
+        if (scaled_cb[i * chroma_stride + j] > sc_max_min[1][1]) {
+          sc_max_min[1][1] = scaled_cb[i * chroma_stride + j];
+        }
+        cb[i * chroma_stride + j] = round_divide((255 * (cb_grain[i * chroma_grain_stride + j] - grain_min)),  (grain_max - grain_min));
       }
       if (apply_cr) {
-        cr[i * chroma_stride + j] = round_divide((255 * (cb_grain[i * chroma_grain_stride] - grain_min)),  (grain_max - grain_min));
+        scaled_cr[i * chroma_stride + j] = ((scale_LUT(scaling_lut_cr,
+                            clamp(((average_luma * cr_luma_mult +
+                                    cr_mult * cr[i * chroma_stride + j]) >>
+                                   6) +
+                                      cr_offset,
+                                  0, (256 << (bit_depth - 8)) - 1),
+                            bit_depth) *
+                      cr_grain[i * chroma_grain_stride + j] +
+                  rounding_offset) >>
+                 params->scaling_shift);
+        if (scaled_cr[i * chroma_stride + j] < sc_max_min[2][0]) {
+          sc_max_min[2][0] = scaled_cr[i * chroma_stride + j];
+        }
+        if (scaled_cr[i * chroma_stride + j] > sc_max_min[2][1]) {
+          sc_max_min[2][1] = scaled_cr[i * chroma_stride + j];
+        }
+        cr[i * chroma_stride + j] = round_divide((255 * (cr_grain[i * chroma_grain_stride + j] - grain_min)),  (grain_max - grain_min));
       }
     }
   }
@@ -1583,6 +1683,17 @@ void fill_block(const aom_film_grain_t *params, uint8_t *luma,
   if (apply_y) {
     for (int i = 0; i < (half_luma_height << 1); i++) {
       for (int j = 0; j < (half_luma_width << 1); j++) {
+        scaled_luma[i * luma_stride + j] = ((scale_LUT(scaling_lut_y, luma[i * luma_stride + j], bit_depth) *
+                            luma_grain[i * luma_grain_stride + j] +
+                        rounding_offset) >>
+                       params->scaling_shift);
+
+        if (scaled_luma[i * luma_stride + j] < sc_max_min[0][0]) {
+          sc_max_min[0][0] = scaled_luma[i * luma_stride + j];
+        }
+        if (scaled_luma[i * luma_stride + j] > sc_max_min[0][1]) {
+          sc_max_min[0][1] = scaled_luma[i * luma_stride + j];
+        }
         luma[i * luma_stride + j] = round_divide((255 * (luma_grain[i * luma_grain_stride + j] - grain_min)),  (grain_max - grain_min));
       }
     }
@@ -1590,7 +1701,15 @@ void fill_block(const aom_film_grain_t *params, uint8_t *luma,
 
 }
 
-int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t *cb, uint8_t *cr, int height, int width,
+static void normalize_arrays(int *arr, int len, int min, int max) {
+
+  for (int i = 0; i < len; i++) {
+    arr[i] = round_divide((255 * (arr[i] - min)),  (max - min));
+  }
+}
+
+int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t *cb, uint8_t *cr, 
+                           int *scaled_luma, int *scaled_cb, int *scaled_cr, int height, int width,
                            int luma_stride, int chroma_stride, int chroma_subsamp_y,
                            int chroma_subsamp_x, int mc_identity) {
 
@@ -1649,6 +1768,8 @@ int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t 
   grain_min = 0 - grain_center;
   grain_max = grain_center - 1;
 
+  int sc_max_min[3][2] = {{INT32_MAX, INT32_MIN}, {INT32_MAX, INT32_MIN}, {INT32_MAX, INT32_MIN}};
+  
   init_arrays(params, luma_stride, chroma_stride, &pred_pos_luma,
               &pred_pos_chroma, &luma_grain_block, &cb_grain_block,
               &cr_grain_block, &y_line_buf, &cb_line_buf, &cr_line_buf,
@@ -1672,6 +1793,18 @@ int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t 
           chroma_subsamp_y, chroma_subsamp_x))
     return -1;
 
+  init_scaling_function(params->scaling_points_y, params->num_y_points,
+                        scaling_lut_y);
+
+  if (params->chroma_scaling_from_luma) {
+    memcpy(scaling_lut_cb, scaling_lut_y, sizeof(*scaling_lut_y) * 256);
+    memcpy(scaling_lut_cr, scaling_lut_y, sizeof(*scaling_lut_y) * 256);
+  } else {
+    init_scaling_function(params->scaling_points_cb, params->num_cb_points,
+                          scaling_lut_cb);
+    init_scaling_function(params->scaling_points_cr, params->num_cr_points,
+                          scaling_lut_cr);
+  }
 
   for (int y = 0; y < height / 2; y += (luma_subblock_size_y >> 1)) {
     init_random_generator(y * 2, params->random_seed);
@@ -1726,12 +1859,19 @@ int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t 
               cr +
                   ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
                   (x << (1 - chroma_subsamp_x)),
+              scaled_luma + ((y + i) << 1) * luma_stride + (x << 1),
+              scaled_cb +
+                  ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
+                  (x << (1 - chroma_subsamp_x)),
+              scaled_cr +
+                  ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
+                  (x << (1 - chroma_subsamp_x)),
               luma_stride, chroma_stride, y_col_buf + i * 4,
               cb_col_buf + i * (2 - chroma_subsamp_y) * (2 - chroma_subsamp_x),
               cr_col_buf + i * (2 - chroma_subsamp_y) * (2 - chroma_subsamp_x),
               2, (2 - chroma_subsamp_x),
               AOMMIN(luma_subblock_size_y >> 1, height / 2 - y) - i, 1,
-              bit_depth, chroma_subsamp_y, chroma_subsamp_x, mc_identity, grain_max, grain_min);
+              bit_depth, chroma_subsamp_y, chroma_subsamp_x, mc_identity, sc_max_min);
 
       }
 
@@ -1795,12 +1935,17 @@ int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t 
                   (x << ((1 - chroma_subsamp_x))),
               cr + (y << (1 - chroma_subsamp_y)) * chroma_stride +
                   (x << ((1 - chroma_subsamp_x))),
+              scaled_luma + (y << 1) * luma_stride + (x << 1),
+              scaled_cb + (y << (1 - chroma_subsamp_y)) * chroma_stride +
+                  (x << ((1 - chroma_subsamp_x))),
+              scaled_cr + (y << (1 - chroma_subsamp_y)) * chroma_stride +
+                  (x << ((1 - chroma_subsamp_x))),
               luma_stride, chroma_stride, y_line_buf + (x << 1),
               cb_line_buf + (x << (1 - chroma_subsamp_x)),
               cr_line_buf + (x << (1 - chroma_subsamp_x)), luma_stride,
               chroma_stride, 1,
               AOMMIN(luma_subblock_size_x >> 1, width / 2 - x), bit_depth,
-              chroma_subsamp_y, chroma_subsamp_x, mc_identity, grain_max, grain_min);
+              chroma_subsamp_y, chroma_subsamp_x, mc_identity, sc_max_min);
       }
 
       int i = overlap && y ? 1 : 0;
@@ -1813,6 +1958,13 @@ int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t 
                 ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
                 ((x + j) << (1 - chroma_subsamp_x)),
             cr +
+                ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
+                ((x + j) << (1 - chroma_subsamp_x)),
+            scaled_luma + ((y + i) << 1) * luma_stride + ((x + j) << 1),
+            scaled_cb +
+                ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
+                ((x + j) << (1 - chroma_subsamp_x)),
+            scaled_cr +
                 ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
                 ((x + j) << (1 - chroma_subsamp_x)),
             luma_stride, chroma_stride,
@@ -1829,7 +1981,7 @@ int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t 
             luma_grain_stride, chroma_grain_stride,
             AOMMIN(luma_subblock_size_y >> 1, height / 2 - y) - i,
             AOMMIN(luma_subblock_size_x >> 1, width / 2 - x) - j, bit_depth,
-            chroma_subsamp_y, chroma_subsamp_x, mc_identity, grain_max, grain_min);
+            chroma_subsamp_y, chroma_subsamp_x, mc_identity, sc_max_min);
 
       if (overlap) {
         if (x) {
@@ -1907,6 +2059,11 @@ int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t 
     }
 
   }
+
+    normalize_arrays(scaled_luma, width * height, sc_max_min[0][0], sc_max_min[0][1]);
+    normalize_arrays(scaled_cb, (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y), sc_max_min[1][0], sc_max_min[1][1]);
+    normalize_arrays(scaled_cr, (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y), sc_max_min[2][0], sc_max_min[2][1]);
+
     dealloc_arrays(params, &pred_pos_luma, &pred_pos_chroma, &luma_grain_block,
                  &cb_grain_block, &cr_grain_block, &y_line_buf, &cb_line_buf,
                  &cr_line_buf, &y_col_buf, &cb_col_buf, &cr_col_buf);
