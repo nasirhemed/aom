@@ -1048,7 +1048,7 @@ int av1_add_film_grain(const aom_film_grain_t *params, const aom_image_t *src,
 
 
 
-
+  // TODO(nasirhemed) high bit-depth is currently not supported. Assuming input streams for inspection is 8-bit
   generate_grain_image(params, dst->grain_block[AOM_PLANE_Y], dst->grain_block[AOM_PLANE_U],
   dst->grain_block[AOM_PLANE_V], scaled_luma, scaled_cb, scaled_cr, height, width, luma_stride, chroma_stride, 
   chroma_subsamp_y, chroma_subsamp_x, mc_identity);
@@ -1537,7 +1537,7 @@ void generate_grain_uv_c(grain_values *grain_data,
             }
 
             const int grain = buf[y][x] + round2(sum, data->ar_coeff_shift);
-            buf[y][x] = iclip(grain, gr_min, gr_max);
+            buf[y][x] = CLIP(grain, gr_min, gr_max);
         }
     }
 }
@@ -1579,7 +1579,7 @@ void generate_grain_y_c(grain_values *grain_data,
             }
 
             const int grain = buf[y][x] + round2(sum, data->ar_coeff_shift);
-            buf[y][x] = iclip(grain, gr_min, gr_max);
+            buf[y][x] = CLIP(grain, gr_min, gr_max);
         }
     }
 }

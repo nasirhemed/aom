@@ -32,7 +32,6 @@ extern "C" {
 #define SUB_GRAIN_WIDTH 44
 #define SUB_GRAIN_HEIGHT 38
 
-#define iclip(v, min, max) v < min ? min : v > max ? max : v;
 #endif
 
 #if CONFIG_INSPECTION
