@@ -1599,7 +1599,7 @@ static void fill_block(const aom_film_grain_t *params, uint8_t *luma,
                                int luma_grain_stride, int chroma_grain_stride,
                                int half_luma_height, int half_luma_width,
                                int bit_depth, int chroma_subsamp_y,
-                               int chroma_subsamp_x, int mc_identity, int (*sc_max_min)[2]) {
+                               int chroma_subsamp_x, int (*sc_max_min)[2]) {
 
 
   int cb_mult = params->cb_mult - 128;            // fixed scale
@@ -1878,7 +1878,7 @@ int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t 
               cr_col_buf + i * (2 - chroma_subsamp_y) * (2 - chroma_subsamp_x),
               2, (2 - chroma_subsamp_x),
               AOMMIN(luma_subblock_size_y >> 1, height / 2 - y) - i, 1,
-              bit_depth, chroma_subsamp_y, chroma_subsamp_x, mc_identity, sc_max_min);
+              bit_depth, chroma_subsamp_y, chroma_subsamp_x, sc_max_min);
 
       }
 
@@ -1952,7 +1952,7 @@ int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t 
               cr_line_buf + (x << (1 - chroma_subsamp_x)), luma_stride,
               chroma_stride, 1,
               AOMMIN(luma_subblock_size_x >> 1, width / 2 - x), bit_depth,
-              chroma_subsamp_y, chroma_subsamp_x, mc_identity, sc_max_min);
+              chroma_subsamp_y, chroma_subsamp_x, sc_max_min);
       }
 
       int i = overlap && y ? 1 : 0;
@@ -1988,7 +1988,7 @@ int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t 
             luma_grain_stride, chroma_grain_stride,
             AOMMIN(luma_subblock_size_y >> 1, height / 2 - y) - i,
             AOMMIN(luma_subblock_size_x >> 1, width / 2 - x) - j, bit_depth,
-            chroma_subsamp_y, chroma_subsamp_x, mc_identity, sc_max_min);
+            chroma_subsamp_y, chroma_subsamp_x, sc_max_min);
 
       if (overlap) {
         if (x) {
