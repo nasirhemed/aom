@@ -32,7 +32,8 @@ extern "C" {
 #define SUB_GRAIN_WIDTH 44
 #define SUB_GRAIN_HEIGHT 38
 
-#define iclip(v, min, max) v < min ? min : v > max ? max : v;
+#define CLIP(x, lo, hi) ((x) < (lo) ? (lo) : (x) > (hi) ? (hi) : (x))
+
 #endif
 
 #if CONFIG_INSPECTION
@@ -104,6 +105,7 @@ typedef struct {
   int grain_scale_shift;
 
   uint16_t random_seed;
+  
   // This structure is compared element-by-element in the function
   // av1_check_grain_params_equiv: this function must be updated if any changes
   // are made to this structure.
@@ -216,6 +218,29 @@ void generate_grain_uv_c(grain_values *grain_data,
 
 void init_scaling_function_extern(const int scaling_points[][2], int num_points,
                                   int scaling_lut[]);
+
+/*!\brief Add film grain
+ *
+ * Add film grain to an image
+ *
+ * Returns 0 for success, -1 for failure
+ *
+ * \param[in]    params           Grain parameters
+ * \param[in]    luma             grain luma plane (contains luma pixels)
+ * \param[in]    cb               grain cb plane (contains cb pixels)
+ * \param[in]    cr               grain cr plane (contains cr pixels)
+ * \param[in]    scaled_luma      scaled luma plane
+ * \param[in]    scaled_cb        scaled cb plane
+ * \param[in]    scaled_cr        scaled cr plane
+ * \param[in]    height           luma plane height
+ * \param[in]    width            luma plane width
+ * \param[in]    luma_stride      luma plane stride
+ * \param[in]    chroma_stride    chroma plane stride
+ */
+int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t *cb, uint8_t *cr, 
+                           int *scaled_luma, int *scaled_cb, int *scaled_cr, int height, int width,
+                           int luma_stride, int chroma_stride, int chroma_subsamp_y,
+                           int chroma_subsamp_x);
 
 #endif
 
