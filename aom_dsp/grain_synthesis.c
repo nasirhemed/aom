@@ -692,7 +692,10 @@ static void add_noise_to_block(aom_film_grain_t *params, uint8_t *luma,
         }
         uint8_t y = luma[i * luma_stride + j];
         int f_y = scale_LUT(scaling_lut_y, luma[i * luma_stride + j], 8);
-        int g_l = luma_grain[i * luma_grain_stride + j];
+        int g_l = ((scale_LUT(scaling_lut_y, luma[i * luma_stride + j], 8) *
+                            luma_grain[i * luma_grain_stride + j] +
+                        rounding_offset) >>
+                       params->scaling_shift);
         int y_prime = luma[i * luma_stride + j] +
                       ((scale_LUT(scaling_lut_y, luma[i * luma_stride + j], 8) *
                             luma_grain[i * luma_grain_stride + j] +
@@ -712,7 +715,7 @@ static void add_noise_to_block(aom_film_grain_t *params, uint8_t *luma,
         params->luma_info.y[params->luma_info_index + (i * luma_grain_stride + j)] = y;
         params->luma_info.y_prime[params->luma_info_index + (i * luma_grain_stride + j)] = y_prime;
   
-        // fprintf(stderr, "(%d, %d, %d):%u:%d:%d:%d\n", i, j, luma_stride, y, g_l, f_y, y_prime);
+        fprintf(stderr, "(%d, %d, %d):%u:%d:%d:%d\n", i, j, luma_stride, y, g_l, f_y, y_prime);
         
       }
     }
@@ -991,7 +994,7 @@ int av1_add_film_grain(aom_film_grain_t *params, const aom_image_t *src,
       chroma_subsamp_y = 0;
       break;
     default:  // unknown input format
-      // fprintf(stderr, "Film grain error: input format is not supported!");
+      fprintf(stderr, "Film grain error: input format is not supported!");
       return -1;
   }
 
@@ -1166,13 +1169,13 @@ int av1_add_film_grain_run(aom_film_grain_t *params, uint8_t *luma,
   init_raw_data_struct(params, height * width);
   params->luma_stride = luma_stride;
 
-  // fprintf(stderr, "scaling lut values: ");
-  for (int i = 0; i < 255; i++) {
-    // fprintf(stderr, "%d ", scaling_lut_y[i]);
+  fprintf(stderr, "scaling lut values: ");
+  for (int i = 0; i < 256; i++) {
+    fprintf(stderr, "%d ", scaling_lut_y[i]);
   }
-  // fprintf(stderr, "\n");
+  fprintf(stderr, "\n");
 
-  // fprintf(stderr, "index:y:g_l:f_y:y_prime\n");
+  fprintf(stderr, "index:y:g_l:f_y:y_prime\n");
 
   for (int y = 0; y < height / 2; y += (luma_subblock_size_y >> 1)) {
     init_random_generator(y * 2, params->random_seed);
@@ -1220,7 +1223,7 @@ int av1_add_film_grain_run(aom_film_grain_t *params, uint8_t *luma,
 
         params->luma_info_index = ((y + i) << 1) * luma_stride + (x << 1);
 
-        // fprintf(stderr, "=====(y (h), x (w), luma_stride): (%d, %d, %d)=====\n", ((y + i) << 1), (x << 1), luma_stride);
+        fprintf(stderr, "=====(y (h), x (w), luma_stride): (%d, %d, %d)=====\n", ((y + i) << 1), (x << 1), luma_stride);
 
         if (use_high_bit_depth) {
           add_noise_to_block_hbd(
@@ -1307,7 +1310,7 @@ int av1_add_film_grain_run(aom_film_grain_t *params, uint8_t *luma,
                    (width - ((x ? x + 1 : 0) << 1)) >> chroma_subsamp_x),
             2 >> chroma_subsamp_y);
   
-        // fprintf(stderr, "=====(y (h), x (w), luma_stride): (%d, %d, %d)=====\n", ((y) << 1), ((x) << 1), luma_stride);
+        fprintf(stderr, "=====(y (h), x (w), luma_stride): (%d, %d, %d)=====\n", ((y) << 1), ((x) << 1), luma_stride);
 
         if (use_high_bit_depth) {
           add_noise_to_block_hbd(
@@ -1341,7 +1344,7 @@ int av1_add_film_grain_run(aom_film_grain_t *params, uint8_t *luma,
       int i = overlap && y ? 1 : 0;
       int j = overlap && x ? 1 : 0;
 
-      // fprintf(stderr, "=====(y (h), x (w), luma_stride): (%d, %d, %d)=====\n", ((y + i) << 1), ((x + j) << 1), luma_stride);
+      fprintf(stderr, "=====(y (h), x (w), luma_stride): (%d, %d, %d)=====\n", ((y + i) << 1), ((x + j) << 1), luma_stride);
 
       if (use_high_bit_depth) {
         add_noise_to_block_hbd(
@@ -1468,7 +1471,7 @@ int av1_add_film_grain_run(aom_film_grain_t *params, uint8_t *luma,
     }
   }
 
-  // fprintf(stderr, ">>>>>>>>>>>>> FRAME DONE >>>>>>>>>>\n\n\n");
+  fprintf(stderr, ">>>>>>>>>>>>> FRAME DONE >>>>>>>>>>\n\n\n");
 
 #if CONFIG_INSPECTION
   memcpy(dst->scaling_lut_y, scaling_lut_y, sizeof(scaling_lut_y));
