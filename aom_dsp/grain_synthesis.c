@@ -1406,3 +1406,137 @@ int av1_add_film_grain_run(const aom_film_grain_t *params, uint8_t *luma,
                  &cr_line_buf, &y_col_buf, &cb_col_buf, &cr_col_buf);
   return 0;
 }
+
+#if CONFIG_INSPECTION
+
+/**
+ * Note: This code was taken from dav1d's implementation of film grain 
+ * This is used to only extract the grain_sample.
+ * Code: https://code.videolan.org/videolan/dav1d/-/blob/master/src/film_grain_tmpl.c
+ */ 
+
+static inline int get_random_number_with_seed(const int bits, unsigned *const state) {
+    const int r = *state;
+    unsigned bit = ((r >> 0) ^ (r >> 1) ^ (r >> 3) ^ (r >> 12)) & 1;
+    *state = (r >> 1) | (bit << 15);
+
+    return (*state >> (16 - bits)) & ((1 << bits) - 1);
+}
+
+static inline int round2(const int x, const uint64_t shift) {
+    return (x + ((1 << shift) >> 1)) >> shift;
+}
+
+void generate_grain_uv_c(grain_values *grain_data,
+                    const grain_values *grain_data_y,
+                    const aom_film_grain_t *const data, const int uv,
+                    const int subx, const int suby)
+{
+    int (*buf)[GRAIN_WIDTH] = grain_data->buf;
+    const int (*buf_y)[GRAIN_WIDTH] = grain_data_y->buf;
+
+    const int bitdepth_min_8 = 0;
+    unsigned seed = data->random_seed ^ (uv ? 0x49d8 : 0xb524);
+    const int shift = 4 - bitdepth_min_8 + data->grain_scale_shift;
+    const int grain_ctr = 128 << bitdepth_min_8;
+    const int gr_min = -grain_ctr, gr_max = grain_ctr - 1;
+    
+
+    const int chromaW = subx ? SUB_GRAIN_WIDTH  : GRAIN_WIDTH;
+    const int chromaH = suby ? SUB_GRAIN_HEIGHT : GRAIN_HEIGHT;
+
+    grain_data->height = chromaH;
+    grain_data->width = chromaW;
+
+    for (int y = 0; y < chromaH; y++) {
+        for (int x = 0; x < chromaW; x++) {
+            const int value = get_random_number_with_seed(11, &seed);
+            buf[y][x] = round2(gaussian_sequence[ value ], shift);
+        }
+    }
+
+    const int ar_pad = 3;
+    const int ar_lag = data->ar_coeff_lag;
+
+    for (int y = ar_pad; y < chromaH; y++) {
+        for (int x = ar_pad; x < chromaW - ar_pad; x++) {
+            const int *coeff = uv ? data->ar_coeffs_cr : data->ar_coeffs_cb;
+            int sum = 0;
+            for (int dy = -ar_lag; dy <= 0; dy++) {
+                for (int dx = -ar_lag; dx <= ar_lag; dx++) {
+                    // For the final (current) pixel, we need to add in the
+                    // contribution from the luma grain texture
+                    if (!dx && !dy) {
+                        if (!data->num_y_points)
+                            break;
+                        int luma = 0;
+                        const int lumaX = ((x - ar_pad) << subx) + ar_pad;
+                        const int lumaY = ((y - ar_pad) << suby) + ar_pad;
+                        for (int i = 0; i <= suby; i++) {
+                            for (int j = 0; j <= subx; j++) {
+                                luma += buf_y[lumaY + i][lumaX + j];
+                            }
+                        }
+                        luma = round2(luma, subx + suby);
+                        sum += luma * (*coeff);
+                        break;
+                    }
+
+                    sum += *(coeff++) * buf[y + dy][x + dx];
+                }
+            }
+
+            const int grain = buf[y][x] + round2(sum, data->ar_coeff_shift);
+            buf[y][x] = iclip(grain, gr_min, gr_max);
+        }
+    }
+}
+
+void generate_grain_y_c(grain_values *grain_data,
+                               const aom_film_grain_t *data)
+{
+
+    int (*buf)[GRAIN_WIDTH] = grain_data->buf;
+    grain_data->height = GRAIN_HEIGHT;
+    grain_data->width = GRAIN_WIDTH;
+
+    const int bitdepth_min_8 = 0;
+    unsigned seed = data->random_seed;
+    const int shift = 4 - bitdepth_min_8 + data->grain_scale_shift;
+    const int grain_ctr = 128 << bitdepth_min_8;
+    const int gr_min = -grain_ctr, gr_max = grain_ctr - 1;
+
+    for (int y = 0; y < GRAIN_HEIGHT; y++) {
+        for (int x = 0; x < GRAIN_WIDTH; x++) {
+            const int value = get_random_number_with_seed(11, &seed);
+            buf[y][x] = round2(gaussian_sequence[ value ], shift);
+        }
+    }
+
+    const int ar_pad = 3;
+    const int ar_lag = data->ar_coeff_lag;
+
+    for (int y = ar_pad; y < GRAIN_HEIGHT; y++) {
+        for (int x = ar_pad; x < GRAIN_WIDTH - ar_pad; x++) {
+            const int *coeff = data->ar_coeffs_y;
+            int sum = 0;
+            for (int dy = -ar_lag; dy <= 0; dy++) {
+                for (int dx = -ar_lag; dx <= ar_lag; dx++) {
+                    if (!dx && !dy)
+                        break;
+                    sum += *(coeff++) * buf[y + dy][x + dx];
+                }
+            }
+
+            const int grain = buf[y][x] + round2(sum, data->ar_coeff_shift);
+            buf[y][x] = iclip(grain, gr_min, gr_max);
+        }
+    }
+}
+
+void init_scaling_function_extern(const int scaling_points[][2], int num_points,
+                                  int scaling_lut[]) {
+    return init_scaling_function(scaling_points, num_points, scaling_lut);
+
+}
+#endif 
