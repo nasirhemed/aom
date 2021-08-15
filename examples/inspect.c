@@ -601,6 +601,33 @@ int put_film_grain_params(char *buffer) {
     buf += put_int_arr(buf, film_grain.ar_coeffs_cr, sizeof(film_grain.ar_coeffs_cr) / sizeof(int));
     buf += put_str(buf, ",\n");
 
+    buf += put_str(buf, "  \"grain_sample_y\": ");
+    *(buf++) = '[';
+    for (int i = 0; i < film_grain.grain_data[0].height; i++) {
+      buf += put_int_arr(buf, film_grain.grain_data[0].buf[i], film_grain.grain_data[0].width);
+      if (i < film_grain.grain_data[0].height - 1)
+        *(buf++) = ',';
+    }
+    buf += put_str(buf, "],\n");
+
+    buf += put_str(buf, "  \"grain_sample_cb\": ");
+    *(buf++) = '[';
+    for (int i = 0; i < film_grain.grain_data[1].height; i++) {
+      buf += put_int_arr(buf, film_grain.grain_data[1].buf[i], film_grain.grain_data[1].width);
+      if (i < film_grain.grain_data[1].height - 1)
+        *(buf++) = ',';
+    }
+    buf += put_str(buf, "],\n");
+    
+    buf += put_str(buf, "  \"grain_sample_cr\": ");
+    *(buf++) = '[';
+    for (int i = 0; i < film_grain.grain_data[2].height; i++) {
+      buf += put_int_arr(buf, film_grain.grain_data[2].buf[i], film_grain.grain_data[2].width);
+      if (i < film_grain.grain_data[2].height - 1)
+        *(buf++) = ',';
+    }
+    buf += put_str(buf, "],\n");
+
     buf += snprintf(buf, MAX_BUFFER, "    \"ar_coeff_shift\": %d,\n", film_grain.ar_coeff_shift);
     buf += snprintf(buf, MAX_BUFFER, "    \"cb_mult\": %d,\n", film_grain.cb_mult);
     buf += snprintf(buf, MAX_BUFFER, "    \"cb_luma_mult\": %d,\n", film_grain.cb_luma_mult);
@@ -984,7 +1011,15 @@ int read_frame() {
 
       have_frame = 1;
       end_frame = frame + frame_size;
-    }
+    } 
+    // else {
+
+    //   if (!aom_video_reader_read_frame(reader)) return EXIT_FAILURE;
+    //   frame = aom_video_reader_get_frame(reader, &frame_size);
+
+    //   have_frame = 1;
+    //   end_frame = frame + frame_size;
+    // }
 
     if (aom_codec_decode(&codec, frame, (unsigned int)frame_size, &adr) !=
         AOM_CODEC_OK) {

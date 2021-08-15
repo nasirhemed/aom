@@ -13,28 +13,7 @@
 #include "av1/common/enums.h"
 #include "av1/common/cdef.h"
 
-static void init_scaling_function(const int scaling_points[][2], int num_points,
-                                  int scaling_lut[]) {
-  if (num_points == 0) return;
-
-  for (int i = 0; i < scaling_points[0][0]; i++)
-    scaling_lut[i] = scaling_points[0][1];
-
-  for (int point = 0; point < num_points - 1; point++) {
-    int delta_y = scaling_points[point + 1][1] - scaling_points[point][1];
-    int delta_x = scaling_points[point + 1][0] - scaling_points[point][0];
-
-    int64_t delta = delta_y * ((65536 + (delta_x >> 1)) / delta_x);
-
-    for (int x = 0; x < delta_x; x++) {
-      scaling_lut[scaling_points[point][0] + x] =
-          scaling_points[point][1] + (int)((x * delta + 32768) >> 16);
-    }
-  }
-
-  for (int i = scaling_points[num_points - 1][0]; i < 256; i++)
-    scaling_lut[i] = scaling_points[num_points - 1][1];
-}
+#include "aom_dsp/grain_synthesis.h"
 
 static void ifd_init_mi_rc(insp_frame_data *fd, int mi_cols, int mi_rows) {
   fd->mi_cols = mi_cols;
@@ -63,7 +42,7 @@ int ifd_inspect(insp_frame_data *fd, void *decoder, int skip_not_transform) {
   const CommonQuantParams *quant_params = &cm->quant_params;
 
   // Check for film grain parameters
-  if (cm->cur_frame->film_grain_params_present) {
+  if (cm->cur_frame->film_grain_params_present && cm->cur_frame->film_grain_params.apply_grain) {
     assert(av1_check_grain_params_equiv(&cm->film_grain_params, &cm->cur_frame->film_grain_params));
     const aom_film_grain_t film_grain_params = cm->film_grain_params;
 
@@ -72,13 +51,18 @@ int ifd_inspect(insp_frame_data *fd, void *decoder, int skip_not_transform) {
 
     memcpy(&fd->film_grain_params, &cm->cur_frame->film_grain_params, sizeof(fd->film_grain_params));
 
-    init_scaling_function(fd->film_grain_params.scaling_points_y, fd->film_grain_params.num_y_points, fd->film_grain_params.scaling_lut_y);  
+    generate_grain_y_c(&(fd->film_grain_params.grain_data[0]), &fd->film_grain_params);
+
+    generate_grain_uv_c(&(fd->film_grain_params.grain_data[1]), &(fd->film_grain_params.grain_data[0]), &fd->film_grain_params, 0, cm->seq_params->subsampling_x, cm->seq_params->subsampling_y);
+
+    generate_grain_uv_c(&(fd->film_grain_params.grain_data[2]), &(fd->film_grain_params.grain_data[0]), &fd->film_grain_params, 1, cm->seq_params->subsampling_x, cm->seq_params->subsampling_y);
+    init_scaling_function_extern(fd->film_grain_params.scaling_points_y, fd->film_grain_params.num_y_points, fd->film_grain_params.scaling_lut_y);  
     if (fd->film_grain_params.chroma_scaling_from_luma) {
       memcpy(fd->film_grain_params.scaling_lut_cb, fd->film_grain_params.scaling_lut_y, 256 * sizeof(*fd->film_grain_params.scaling_lut_y));
       memcpy(fd->film_grain_params.scaling_lut_cr, fd->film_grain_params.scaling_lut_y, 256 * sizeof(*fd->film_grain_params.scaling_lut_y));
     } else {
-      init_scaling_function(fd->film_grain_params.scaling_points_cb, fd->film_grain_params.num_cb_points, fd->film_grain_params.scaling_lut_cb);
-      init_scaling_function(fd->film_grain_params.scaling_points_cr, fd->film_grain_params.num_cr_points, fd->film_grain_params.scaling_lut_cr);
+      init_scaling_function_extern(fd->film_grain_params.scaling_points_cb, fd->film_grain_params.num_cb_points, fd->film_grain_params.scaling_lut_cb);
+      init_scaling_function_extern(fd->film_grain_params.scaling_points_cr, fd->film_grain_params.num_cr_points, fd->film_grain_params.scaling_lut_cr);
     }
     
   } else {
