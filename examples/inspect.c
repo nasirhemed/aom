@@ -574,15 +574,15 @@ int put_film_grain_params(char *buffer) {
     buf += put_str(buf, "],\n");
 
     buf += put_str(buf, "    \"scaling_lut_y\": ");
-    buf += put_int_arr(buf, film_grain.scaling_lut_y, sizeof(film_grain.scaling_lut_y)/ sizeof(int));
+    buf += put_int_arr(buf, frame_data.scaling_lut_y, sizeof(frame_data.scaling_lut_y)/ sizeof(int));
     buf += put_str(buf, ",\n");
 
     buf += put_str(buf, "    \"scaling_lut_cb\": ");
-    buf += put_int_arr(buf, film_grain.scaling_lut_cb, sizeof(film_grain.scaling_lut_cb)/ sizeof(int));
+    buf += put_int_arr(buf, frame_data.scaling_lut_cb, sizeof(frame_data.scaling_lut_cb)/ sizeof(int));
     buf += put_str(buf, ",\n");
 
     buf += put_str(buf, "    \"scaling_lut_cr\": ");
-    buf += put_int_arr(buf, film_grain.scaling_lut_cr, sizeof(film_grain.scaling_lut_cr)/ sizeof(int));
+    buf += put_int_arr(buf, frame_data.scaling_lut_cr, sizeof(frame_data.scaling_lut_cr)/ sizeof(int));
     buf += put_str(buf, ",\n");
 
 
@@ -603,27 +603,27 @@ int put_film_grain_params(char *buffer) {
 
     buf += put_str(buf, "  \"grain_sample_y\": ");
     *(buf++) = '[';
-    for (int i = 0; i < film_grain.grain_data[0].height; i++) {
-      buf += put_int_arr(buf, film_grain.grain_data[0].buf[i], film_grain.grain_data[0].width);
-      if (i < film_grain.grain_data[0].height - 1)
+    for (int i = 0; i < frame_data.grain_data[0].height; i++) {
+      buf += put_int_arr(buf, frame_data.grain_data[0].buf[i], frame_data.grain_data[0].width);
+      if (i < frame_data.grain_data[0].height - 1)
         *(buf++) = ',';
     }
     buf += put_str(buf, "],\n");
 
     buf += put_str(buf, "  \"grain_sample_cb\": ");
     *(buf++) = '[';
-    for (int i = 0; i < film_grain.grain_data[1].height; i++) {
-      buf += put_int_arr(buf, film_grain.grain_data[1].buf[i], film_grain.grain_data[1].width);
-      if (i < film_grain.grain_data[1].height - 1)
+    for (int i = 0; i < frame_data.grain_data[1].height; i++) {
+      buf += put_int_arr(buf, frame_data.grain_data[1].buf[i], frame_data.grain_data[1].width);
+      if (i < frame_data.grain_data[1].height - 1)
         *(buf++) = ',';
     }
     buf += put_str(buf, "],\n");
     
     buf += put_str(buf, "  \"grain_sample_cr\": ");
     *(buf++) = '[';
-    for (int i = 0; i < film_grain.grain_data[2].height; i++) {
-      buf += put_int_arr(buf, film_grain.grain_data[2].buf[i], film_grain.grain_data[2].width);
-      if (i < film_grain.grain_data[2].height - 1)
+    for (int i = 0; i < frame_data.grain_data[2].height; i++) {
+      buf += put_int_arr(buf, frame_data.grain_data[2].buf[i], frame_data.grain_data[2].width);
+      if (i < frame_data.grain_data[2].height - 1)
         *(buf++) = ',';
     }
     buf += put_str(buf, "],\n");

@@ -67,6 +67,13 @@ struct insp_frame_data {
 
   int film_grain_params_present;
   aom_film_grain_t film_grain_params;
+  
+  // Grain values and scaling lut for film grain params
+  grain_values grain_data[3];
+  int scaling_lut_y[256];
+  int scaling_lut_cb[256];
+  int scaling_lut_cr[256];
+
   insp_mi_data *mi_grid;
   int16_t frame_number;
   int show_frame;

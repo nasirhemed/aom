@@ -104,15 +104,6 @@ typedef struct {
   int grain_scale_shift;
 
   uint16_t random_seed;
-
-#if CONFIG_INSPECTION
-  int scaling_lut_y[256];
-  int scaling_lut_cb[256];
-  int scaling_lut_cr[256];
-
-  grain_values grain_data[3];
-
-#endif
   // This structure is compared element-by-element in the function
   // av1_check_grain_params_equiv: this function must be updated if any changes
   // are made to this structure.
