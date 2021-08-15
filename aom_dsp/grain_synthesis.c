@@ -1051,7 +1051,7 @@ int av1_add_film_grain(const aom_film_grain_t *params, const aom_image_t *src,
   // TODO(nasirhemed) high bit-depth is currently not supported. Assuming input streams for inspection is 8-bit
   generate_grain_image(params, dst->grain_block[AOM_PLANE_Y], dst->grain_block[AOM_PLANE_U],
   dst->grain_block[AOM_PLANE_V], scaled_luma, scaled_cb, scaled_cr, height, width, luma_stride, chroma_stride, 
-  chroma_subsamp_y, chroma_subsamp_x, mc_identity);
+  chroma_subsamp_y, chroma_subsamp_x);
 
   for (int i = 0; i < width * height; i++) {
     dst->scaled_grain_block[AOM_PLANE_Y][i] = (uint8_t) scaled_luma[i];
@@ -1718,7 +1718,7 @@ static void normalize_arrays(int *arr, int len, int min, int max) {
 int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t *cb, uint8_t *cr, 
                            int *scaled_luma, int *scaled_cb, int *scaled_cr, int height, int width,
                            int luma_stride, int chroma_stride, int chroma_subsamp_y,
-                           int chroma_subsamp_x, int mc_identity) {
+                           int chroma_subsamp_x) {
 
   int **pred_pos_luma;
   int **pred_pos_chroma;

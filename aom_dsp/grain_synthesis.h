@@ -32,6 +32,8 @@ extern "C" {
 #define SUB_GRAIN_WIDTH 44
 #define SUB_GRAIN_HEIGHT 38
 
+#define CLIP(x, lo, hi) ((x) < (lo) ? (lo) : (x) > (hi) ? (hi) : (x))
+
 #endif
 
 #if CONFIG_INSPECTION
@@ -103,15 +105,7 @@ typedef struct {
   int grain_scale_shift;
 
   uint16_t random_seed;
-
-#if CONFIG_INSPECTION
-  int scaling_lut_y[256];
-  int scaling_lut_cb[256];
-  int scaling_lut_cr[256];
-
-  grain_values grain_data[3];
-
-#endif
+  
   // This structure is compared element-by-element in the function
   // av1_check_grain_params_equiv: this function must be updated if any changes
   // are made to this structure.
@@ -246,7 +240,7 @@ void init_scaling_function_extern(const int scaling_points[][2], int num_points,
 int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma, uint8_t *cb, uint8_t *cr, 
                            int *scaled_luma, int *scaled_cb, int *scaled_cr, int height, int width,
                            int luma_stride, int chroma_stride, int chroma_subsamp_y,
-                           int chroma_subsamp_x, int mc_identity);
+                           int chroma_subsamp_x);
 
 #endif
 
