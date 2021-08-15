@@ -1018,15 +1018,7 @@ int read_frame() {
 
       have_frame = 1;
       end_frame = frame + frame_size;
-    } 
-    // else {
-
-    //   if (!aom_video_reader_read_frame(reader)) return EXIT_FAILURE;
-    //   frame = aom_video_reader_get_frame(reader, &frame_size);
-
-    //   have_frame = 1;
-    //   end_frame = frame + frame_size;
-    // }
+    }
 
     if (aom_codec_decode(&codec, frame, (unsigned int)frame_size, &adr) !=
         AOM_CODEC_OK) {
