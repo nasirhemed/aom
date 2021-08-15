@@ -1078,6 +1078,9 @@ EMSCRIPTEN_KEEPALIVE
 unsigned char *get_plane(int plane) { return img->planes[plane]; }
 
 EMSCRIPTEN_KEEPALIVE
+unsigned char *get_old_plane(int plane) { return img->old_plane[plane]; }
+
+EMSCRIPTEN_KEEPALIVE
 int get_plane_stride(int plane) { return img->stride[plane]; }
 
 EMSCRIPTEN_KEEPALIVE

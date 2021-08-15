@@ -1025,6 +1025,10 @@ int av1_add_film_grain(const aom_film_grain_t *params, const aom_image_t *src,
   dst->scaled_grain_block[AOM_PLANE_Y] = aom_malloc(sizeof(uint8_t) * width * height);  
   dst->scaled_grain_block[AOM_PLANE_U] = aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y));
   dst->scaled_grain_block[AOM_PLANE_V] = aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y));
+
+  dst->old_plane[AOM_PLANE_Y] = aom_malloc(sizeof(uint8_t) * width * height);  
+  dst->old_plane[AOM_PLANE_U] = aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y));
+  dst->old_plane[AOM_PLANE_V] = aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y));
   
   int *scaled_luma = aom_malloc(sizeof(int) * width * height);
   int *scaled_cb = aom_malloc(sizeof(int) * (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y));
@@ -1032,11 +1036,14 @@ int av1_add_film_grain(const aom_film_grain_t *params, const aom_image_t *src,
 
   for (int i = 0; i < width * height; i++) {
     dst->grain_block[AOM_PLANE_Y][i] = dst->planes[AOM_PLANE_Y][i];
+    dst->old_plane[AOM_PLANE_Y][i] = dst->planes[AOM_PLANE_Y][i];
   }
 
   for (int i = 0; i < (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y); i++) {
     dst->grain_block[AOM_PLANE_U][i] = dst->planes[AOM_PLANE_U][i];
+    dst->old_plane[AOM_PLANE_U][i] = dst->planes[AOM_PLANE_U][i];
     dst->grain_block[AOM_PLANE_V][i] = dst->planes[AOM_PLANE_V][i];
+    dst->old_plane[AOM_PLANE_V][i] = dst->planes[AOM_PLANE_V][i];
   }
 
 
