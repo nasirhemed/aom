@@ -114,15 +114,6 @@ aom_image_t *aom_codec_get_frame(aom_codec_ctx_t *ctx, aom_codec_iter_t *iter) {
   else
     img = ctx->iface->dec.get_frame(get_alg_priv(ctx), iter);
 
-  // uint8_t *luma = img->planes[AOM_PLANE_Y];
-  // fprintf(stderr, "(y_index, x_index, index) -> luma_value\n");
-  // for (int y =0; y < img->h; y++) {
-  //   for (int x = 0; x < img->w; x++) {
-      
-  //     int index = y * img->stride[AOM_PLANE_Y] + x;
-  //     fprintf(stderr, "(%d %d, %d) -> %d\n", y, x, index, luma[index]);
-  //   }
-  // }
   return img;
 }
 
