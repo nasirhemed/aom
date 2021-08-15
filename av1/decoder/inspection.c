@@ -13,6 +13,29 @@
 #include "av1/common/enums.h"
 #include "av1/common/cdef.h"
 
+static void init_scaling_function(const int scaling_points[][2], int num_points,
+                                  int scaling_lut[]) {
+  if (num_points == 0) return;
+
+  for (int i = 0; i < scaling_points[0][0]; i++)
+    scaling_lut[i] = scaling_points[0][1];
+
+  for (int point = 0; point < num_points - 1; point++) {
+    int delta_y = scaling_points[point + 1][1] - scaling_points[point][1];
+    int delta_x = scaling_points[point + 1][0] - scaling_points[point][0];
+
+    int64_t delta = delta_y * ((65536 + (delta_x >> 1)) / delta_x);
+
+    for (int x = 0; x < delta_x; x++) {
+      scaling_lut[scaling_points[point][0] + x] =
+          scaling_points[point][1] + (int)((x * delta + 32768) >> 16);
+    }
+  }
+
+  for (int i = scaling_points[num_points - 1][0]; i < 256; i++)
+    scaling_lut[i] = scaling_points[num_points - 1][1];
+}
+
 static void ifd_init_mi_rc(insp_frame_data *fd, int mi_cols, int mi_rows) {
   fd->mi_cols = mi_cols;
   fd->mi_rows = mi_rows;
@@ -38,6 +61,29 @@ int ifd_inspect(insp_frame_data *fd, void *decoder, int skip_not_transform) {
   AV1_COMMON *const cm = &pbi->common;
   const CommonModeInfoParams *const mi_params = &cm->mi_params;
   const CommonQuantParams *quant_params = &cm->quant_params;
+
+  // Check for film grain parameters
+  if (cm->cur_frame->film_grain_params_present) {
+    assert(av1_check_grain_params_equiv(&cm->film_grain_params, &cm->cur_frame->film_grain_params));
+    const aom_film_grain_t film_grain_params = cm->film_grain_params;
+
+    fd->film_grain_params_present = 1;
+
+
+    memcpy(&fd->film_grain_params, &cm->cur_frame->film_grain_params, sizeof(fd->film_grain_params));
+
+    init_scaling_function(fd->film_grain_params.scaling_points_y, fd->film_grain_params.num_y_points, fd->film_grain_params.scaling_lut_y);  
+    if (fd->film_grain_params.chroma_scaling_from_luma) {
+      memcpy(fd->film_grain_params.scaling_lut_cb, fd->film_grain_params.scaling_lut_y, 256 * sizeof(*fd->film_grain_params.scaling_lut_y));
+      memcpy(fd->film_grain_params.scaling_lut_cr, fd->film_grain_params.scaling_lut_y, 256 * sizeof(*fd->film_grain_params.scaling_lut_y));
+    } else {
+      init_scaling_function(fd->film_grain_params.scaling_points_cb, fd->film_grain_params.num_cb_points, fd->film_grain_params.scaling_lut_cb);
+      init_scaling_function(fd->film_grain_params.scaling_points_cr, fd->film_grain_params.num_cr_points, fd->film_grain_params.scaling_lut_cr);
+    }
+    
+  } else {
+    fd->film_grain_params_present = 0;
+  }
 
   if (fd->mi_rows != mi_params->mi_rows || fd->mi_cols != mi_params->mi_cols) {
     ifd_clear(fd);
