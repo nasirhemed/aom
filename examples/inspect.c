@@ -625,13 +625,6 @@ int put_wedge_type(char *buffer, const wedge_params_type params) {
 
   buf += put_str(buf, "]\n");
 
-  // buf += put_str(buf, "\"masks\": [");
-
-  // for (i = 0; i < 2; i++) {
-  //   buf +=  put_num(buf, 0, params.masks[i], 0);
-  //   if (i < 2 - 1) *(buf++) = ',';
-  // }
-  // buf += put_str(buf, "],\n");
 
   *(buf++) = '}';
 
