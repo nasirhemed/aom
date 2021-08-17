@@ -66,7 +66,8 @@ typedef enum {
   INTRABC_LAYER = 1 << 17,
   PALETTE_LAYER = 1 << 18,
   UV_PALETTE_LAYER = 1 << 19,
-  ALL_LAYERS = (1 << 20) - 1
+  FILM_GRAIN_LAYER = 1 << 20,
+  ALL_LAYERS = (1 << 21) - 1
 } LayerType;
 
 static LayerType layers = 0;
@@ -121,6 +122,8 @@ static const arg_def_t skip_non_transform_arg = ARG_DEF(
     "snt", "skip_non_transform", 1, "Skip is counted as a non transform.");
 static const arg_def_t combined_arg =
     ARG_DEF("comb", "combined", 1, "combinining parameters into one output.");
+static const arg_def_t dump_film_grain_arg = 
+    ARG_DEF("film", "film_grain", 0, "Dump film grain parameters used for each frame");
 
 int combined_parm_list[15];
 int combined_parm_count = 0;
@@ -150,6 +153,7 @@ static const arg_def_t *main_args[] = { &limit_arg,
                                         &dump_intrabc_arg,
                                         &dump_palette_arg,
                                         &dump_uv_palette_arg,
+                                        &dump_film_grain_arg,
                                         &usage_arg,
                                         &skip_non_transform_arg,
                                         &combined_arg,
@@ -512,6 +516,138 @@ int put_combined(char *buffer) {
   return (int)(buf - buffer);
 }
 
+int put_int_arr(char *buffer, int *arr, int size) {
+  char *buf = buffer;
+
+  *(buf++) = '[';
+  for (int i = 0; i < size; i++) {
+    buf += put_num(buf, 0, arr[i], 0);
+    if (i < size - 1)
+      *(buf++) = ',';
+  }
+  *(buf++) = ']';
+
+  return (int)(buf - buffer);
+}
+
+int put_film_grain_params(char *buffer) {
+
+  char *buf = buffer;
+
+  buf += snprintf(buf, MAX_BUFFER, "  \"filmGrainParamsPresent\": %d,\n", frame_data.film_grain_params_present);
+
+  if (frame_data.film_grain_params_present) {
+    aom_film_grain_t film_grain = frame_data.film_grain_params;
+    buf += put_str(buf, "  \"filmGrainParams\": {\n");
+
+    buf += snprintf(buf, MAX_BUFFER, "    \"apply_grain\": %d,\n", film_grain.apply_grain);
+    buf += snprintf(buf, MAX_BUFFER, "    \"num_y_points\": %d,\n", film_grain.num_y_points);
+
+    buf += put_str(buf, "    \"scaling_points_y\" : ");
+    *(buf++) = '[';
+    for (int i = 0; i < film_grain.num_y_points; i++) {
+      buf += put_int_arr(buf, film_grain.scaling_points_y[i], sizeof(film_grain.scaling_points_y[i])/ sizeof(int));
+      if (i < film_grain.num_y_points - 1)
+        *(buf++) = ',';
+    }
+    buf += put_str(buf, "],\n");
+
+    buf += snprintf(buf, MAX_BUFFER, "    \"num_cb_points\": %d,\n", film_grain.num_cb_points);
+
+    buf += put_str(buf, "    \"scaling_points_cb\" : ");
+    *(buf++) = '[';
+    for (int i = 0; i < film_grain.num_cb_points; i++) {
+      buf += put_int_arr(buf, film_grain.scaling_points_cb[i], sizeof(film_grain.scaling_points_cb[i])/ sizeof(int));
+      if (i < film_grain.num_cb_points - 1)
+        *(buf++) = ',';
+    }
+    buf += put_str(buf, "],\n");
+    buf += snprintf(buf, MAX_BUFFER, "    \"num_cr_points\": %d,\n", film_grain.num_cr_points);
+
+    buf += put_str(buf, "    \"scaling_points_cr\" : ");
+    *(buf++) = '[';
+    for (int i = 0; i < film_grain.num_cr_points; i++) {
+      buf += put_int_arr(buf, film_grain.scaling_points_cr[i], sizeof(film_grain.scaling_points_cr[i])/ sizeof(int));
+      if (i < film_grain.num_cr_points - 1)
+        *(buf++) = ',';
+    }
+    buf += put_str(buf, "],\n");
+
+    buf += put_str(buf, "    \"scaling_lut_y\": ");
+    buf += put_int_arr(buf, frame_data.scaling_lut_y, sizeof(frame_data.scaling_lut_y)/ sizeof(int));
+    buf += put_str(buf, ",\n");
+
+    buf += put_str(buf, "    \"scaling_lut_cb\": ");
+    buf += put_int_arr(buf, frame_data.scaling_lut_cb, sizeof(frame_data.scaling_lut_cb)/ sizeof(int));
+    buf += put_str(buf, ",\n");
+
+    buf += put_str(buf, "    \"scaling_lut_cr\": ");
+    buf += put_int_arr(buf, frame_data.scaling_lut_cr, sizeof(frame_data.scaling_lut_cr)/ sizeof(int));
+    buf += put_str(buf, ",\n");
+
+
+    buf += snprintf(buf, MAX_BUFFER, "    \"scaling_shift\": %d,\n", film_grain.scaling_shift);
+    buf += snprintf(buf, MAX_BUFFER, "    \"ar_coeff_lag\": %d,\n", film_grain.ar_coeff_lag);
+
+    buf += put_str(buf, "    \"ar_coeffs_y\": ");
+    buf += put_int_arr(buf, film_grain.ar_coeffs_y, sizeof(film_grain.ar_coeffs_y) / sizeof(int));
+    buf += put_str(buf, ",\n");
+
+    buf += put_str(buf, "    \"ar_coeffs_cb\": ");
+    buf += put_int_arr(buf, film_grain.ar_coeffs_cb, sizeof(film_grain.ar_coeffs_cb) / sizeof(int));
+    buf += put_str(buf, ",\n");
+
+    buf += put_str(buf, "    \"ar_coeffs_cr\": ");
+    buf += put_int_arr(buf, film_grain.ar_coeffs_cr, sizeof(film_grain.ar_coeffs_cr) / sizeof(int));
+    buf += put_str(buf, ",\n");
+
+    buf += put_str(buf, "  \"grain_sample_y\": ");
+    *(buf++) = '[';
+    for (int i = 0; i < frame_data.grain_data[0].height; i++) {
+      buf += put_int_arr(buf, frame_data.grain_data[0].buf[i], frame_data.grain_data[0].width);
+      if (i < frame_data.grain_data[0].height - 1)
+        *(buf++) = ',';
+    }
+    buf += put_str(buf, "],\n");
+
+    buf += put_str(buf, "  \"grain_sample_cb\": ");
+    *(buf++) = '[';
+    for (int i = 0; i < frame_data.grain_data[1].height; i++) {
+      buf += put_int_arr(buf, frame_data.grain_data[1].buf[i], frame_data.grain_data[1].width);
+      if (i < frame_data.grain_data[1].height - 1)
+        *(buf++) = ',';
+    }
+    buf += put_str(buf, "],\n");
+    
+    buf += put_str(buf, "  \"grain_sample_cr\": ");
+    *(buf++) = '[';
+    for (int i = 0; i < frame_data.grain_data[2].height; i++) {
+      buf += put_int_arr(buf, frame_data.grain_data[2].buf[i], frame_data.grain_data[2].width);
+      if (i < frame_data.grain_data[2].height - 1)
+        *(buf++) = ',';
+    }
+    buf += put_str(buf, "],\n");
+
+    buf += snprintf(buf, MAX_BUFFER, "    \"ar_coeff_shift\": %d,\n", film_grain.ar_coeff_shift);
+    buf += snprintf(buf, MAX_BUFFER, "    \"cb_mult\": %d,\n", film_grain.cb_mult);
+    buf += snprintf(buf, MAX_BUFFER, "    \"cb_luma_mult\": %d,\n", film_grain.cb_luma_mult);
+    buf += snprintf(buf, MAX_BUFFER, "    \"cr_offset\": %d,\n", film_grain.cr_offset);
+    buf += snprintf(buf, MAX_BUFFER, "    \"overlap_flag\": %d,\n", film_grain.overlap_flag);
+    buf += snprintf(buf, MAX_BUFFER, "    \"clip_to_restricted_range\": %d,\n", film_grain.clip_to_restricted_range);
+    buf += snprintf(buf, MAX_BUFFER, "    \"bit_depth\": %d,\n", film_grain.bit_depth);
+    buf += snprintf(buf, MAX_BUFFER, "    \"chroma_scaling_from_luma\": %d,\n", film_grain.chroma_scaling_from_luma);
+    buf += snprintf(buf, MAX_BUFFER, "    \"grain_scale_shift\": %d,\n", film_grain.grain_scale_shift);
+    buf += snprintf(buf, MAX_BUFFER, "    \"random_seed\": %d\n", film_grain.random_seed); 
+    
+    buf += put_str(buf, "},\n");
+    
+  } else {
+    buf += put_str(buf, "  \"filmGrainParams\": {},\n");
+  }
+
+  return (int)(buf - buffer);
+}
+
 int put_block_info(char *buffer, const map_entry *map, const char *name,
                    size_t offset, int len) {
   const int mi_rows = frame_data.mi_rows;
@@ -790,6 +926,9 @@ void inspect(void *pbi, void *data) {
     buf += put_block_info(buf, refs_map, "referenceFrame",
                           offsetof(insp_mi_data, ref_frame), 2);
   }
+  if (layers & FILM_GRAIN_LAYER) {
+    buf += put_film_grain_params(buf);
+  }
 #if CONFIG_ACCOUNTING
   if (layers & ACCOUNTING_LAYER) {
     buf += put_accounting(buf);
@@ -986,6 +1125,8 @@ static void parse_args(char **argv) {
       layers |= PALETTE_LAYER;
     else if (arg_match(&arg, &dump_uv_palette_arg, argi))
       layers |= UV_PALETTE_LAYER;
+    else if (arg_match(&arg, &dump_film_grain_arg, argi))
+      layers |= FILM_GRAIN_LAYER;
     else if (arg_match(&arg, &dump_all_arg, argi))
       layers |= ALL_LAYERS;
     else if (arg_match(&arg, &compress_arg, argi))
