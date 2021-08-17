@@ -222,6 +222,14 @@ typedef struct aom_image {
       *metadata; /**< Metadata payloads associated with the image. */
 
   void *fb_priv; /**< Frame buffer data associated with the image. */
+
+#if CONFIG_INSPECTION
+
+  unsigned char *grain_block[3];
+  unsigned char *scaled_grain_block[3];
+  unsigned char *old_plane[3];
+
+#endif
 } aom_image_t;   /**< alias for struct aom_image */
 
 /*!\brief Open a descriptor, allocating storage for the underlying image
