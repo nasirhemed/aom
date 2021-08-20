@@ -96,7 +96,21 @@ int ifd_inspect(insp_frame_data *fd, void *decoder, int skip_not_transform) {
       }
 
       mi->motion_mode = mbmi->motion_mode;
-      mi->compound_type = mbmi->interinter_comp.type;
+
+      if (mbmi->ref_frame[1] > INTRA_FRAME) {
+        mi->compound_type = mbmi->interinter_comp.type;
+        if (mbmi->interinter_comp.type == COMPOUND_WEDGE) {
+          mi->wedge[0] = mbmi->interinter_comp.wedge_index;
+          mi->wedge[1] = mbmi->interinter_comp.wedge_sign;
+        } else {
+          mi->wedge[0] = -1;
+          mi->wedge[1] = -1;
+        }
+      } else {
+        mi->compound_type = -1;
+        mi->wedge[0] = -1;
+        mi->wedge[1] = -1;
+      }
 
       // Block Size
       mi->bsize = mbmi->bsize;

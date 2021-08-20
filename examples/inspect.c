@@ -40,6 +40,7 @@
 #include "common/tools_common.h"
 #include "common/video_common.h"
 #include "common/video_reader.h"
+#include "av1/common/reconinter.h"
 
 // Max JSON buffer size.
 const int MAX_BUFFER = 1024 * 1024 * 256;
@@ -189,6 +190,12 @@ const map_entry tx_size_map[] = {
   ENUM(TX_32X8),  ENUM(TX_16X64), ENUM(TX_64X16), LAST_ENUM
 };
 
+const map_entry frame_type_map[] = {
+  ENUM(KEY_FRAME), ENUM(INTER_FRAME),
+  ENUM(INTRA_ONLY_FRAME),  // replaces intra-only
+  ENUM(S_FRAME), LAST_ENUM
+};
+
 const map_entry tx_type_map[] = { ENUM(DCT_DCT),
                                   ENUM(ADST_DCT),
                                   ENUM(DCT_ADST),
@@ -230,6 +237,7 @@ const map_entry motion_mode_map[] = { ENUM(SIMPLE_TRANSLATION),
                                       LAST_ENUM };
 
 const map_entry compound_type_map[] = { ENUM(COMPOUND_AVERAGE),
+                                        ENUM(COMPOUND_DISTWTD),
                                         ENUM(COMPOUND_WEDGE),
                                         ENUM(COMPOUND_DIFFWTD), LAST_ENUM };
 
@@ -277,6 +285,7 @@ struct parm_offset parm_offsets[] = {
   { "compound_type", offsetof(insp_mi_data, compound_type) },
   { "referenceFrame", offsetof(insp_mi_data, ref_frame) },
   { "skip", offsetof(insp_mi_data, skip) },
+  { "wedge_sign", offsetof(insp_mi_data, wedge) }
 };
 int parm_count = sizeof(parm_offsets) / sizeof(parm_offsets[0]);
 
@@ -568,6 +577,73 @@ int put_block_info(char *buffer, const map_entry *map, const char *name,
   return (int)(buf - buffer);
 }
 
+int put_wedge_codebook(char *buffer, const wedge_code_type code_type) {
+  char *buf = buffer;
+  *(buf++) = '{';
+  buf += snprintf(buf, MAX_BUFFER, "\"wedgeDirectionType\" : %d,",
+                  code_type.direction);
+  buf += snprintf(buf, MAX_BUFFER, "\"x_offset\" : %d,", code_type.x_offset);
+  buf += snprintf(buf, MAX_BUFFER, "\"y_offset\" : %d }", code_type.y_offset);
+
+  return (int)(buf - buffer);
+}
+
+int put_wedge_codebook_arr(char *buffer, const wedge_code_type *code_types,
+                           int size) {
+  char *buf = buffer;
+  *(buf++) = '[';
+  int i;
+  for (i = 0; i < size; i++) {
+    buf += put_wedge_codebook(buf, code_types[i]);
+    if (i < size - 1) *(buf++) = ',';
+  }
+  *(buf++) = ']';
+
+  return (int)(buf - buffer);
+}
+
+int put_wedge_type(char *buffer, const wedge_params_type params) {
+  char *buf = buffer;
+  int i;
+
+  *(buf++) = '{';
+
+  buf += snprintf(buf, MAX_BUFFER, "\"wedge_types\": %d,", params.wedge_types);
+  buf += put_str(buf, "\"codebook\": ");
+  buf += put_wedge_codebook_arr(buf, params.codebook, params.wedge_types);
+  *(buf++) = ',';
+
+  buf += put_str(buf, "\"signflip\": [");
+
+  if (params.signflip) {
+    for (i = 0; i < MAX_WEDGE_TYPES; i++) {
+      buf += put_num(buf, 0, params.signflip[i], 0);
+      if (i < MAX_WEDGE_TYPES - 1) *(buf++) = ',';
+    }
+  }
+
+  buf += put_str(buf, "]\n");
+
+  *(buf++) = '}';
+
+  return (int)(buf - buffer);
+}
+
+int put_wedge_params_type(char *buffer) {
+  char *buf = buffer;
+
+  *(buf++) = '[';
+
+  for (int i = 0; i < BLOCK_SIZES_ALL; i++) {
+    buf += put_wedge_type(buf, av1_wedge_params_lookup[i]);
+    if (i < BLOCK_SIZES_ALL - 1) *(buf++) = ',';
+  }
+
+  buf += put_str(buf, "],\n");
+
+  return (int)(buf - buffer);
+}
+
 #if CONFIG_ACCOUNTING
 int put_accounting(char *buffer) {
   char *buf = buffer;
@@ -656,6 +732,9 @@ void inspect(void *pbi, void *data) {
   if (layers & COMPOUND_TYPE_LAYER) {
     buf += put_block_info(buf, compound_type_map, "compound_type",
                           offsetof(insp_mi_data, compound_type), 0);
+    buf += snprintf(buf, MAX_BUFFER, "\"wedgeParamsLookup\": ");
+    buf += put_wedge_params_type(buf);
+    buf += put_block_info(buf, NULL, "wedge", offsetof(insp_mi_data, wedge), 2);
   }
   if (layers & SKIP_LAYER) {
     buf +=
@@ -714,6 +793,9 @@ void inspect(void *pbi, void *data) {
       snprintf(buf, MAX_BUFFER, "  \"frame\": %d,\n", frame_data.frame_number);
   buf += snprintf(buf, MAX_BUFFER, "  \"showFrame\": %d,\n",
                   frame_data.show_frame);
+  buf += put_str(buf, "  \"frame_typeMap\": {");
+  buf += put_map(buf, frame_type_map);
+  buf += put_str(buf, "},\n");
   buf += snprintf(buf, MAX_BUFFER, "  \"frameType\": %d,\n",
                   frame_data.frame_type);
   buf += snprintf(buf, MAX_BUFFER, "  \"baseQIndex\": %d,\n",
