@@ -586,6 +586,16 @@ static aom_codec_err_t decoder_decode(aom_codec_alg_priv_t *ctx,
   aom_codec_err_t res = AOM_CODEC_OK;
 
 #if CONFIG_INSPECTION
+
+  if (ctx->frame_worker) {
+    for (size_t j = 0; j < ctx->num_grain_image_frame_buffers; j++) {
+      ctx->grain_image_frame_buffers[j].data = NULL;
+      ctx->grain_image_frame_buffers[j].size = 0;
+      ctx->grain_image_frame_buffers[j].priv = NULL;
+    }
+    ctx->num_grain_image_frame_buffers = 0;
+  }
+
   if (user_priv != 0) {
     return decoder_inspect(ctx, data, data_sz, user_priv);
   }
