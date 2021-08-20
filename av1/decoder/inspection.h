@@ -55,6 +55,7 @@ struct insp_mi_data {
   int16_t intrabc;
   int16_t palette;
   int16_t uv_palette;
+  int16_t wedge[2]; // [wedge_index, wedge_sign]
 };
 
 typedef struct insp_frame_data insp_frame_data;
@@ -63,6 +64,15 @@ struct insp_frame_data {
 #if CONFIG_ACCOUNTING
   Accounting *accounting;
 #endif
+
+  int film_grain_params_present;
+  aom_film_grain_t film_grain_params;
+  int scaling_lut_y[256];
+  int scaling_lut_cb[256];
+  int scaling_lut_cr[256];
+
+  grain_values grain_data[3];
+
   insp_mi_data *mi_grid;
   int16_t frame_number;
   int show_frame;

@@ -57,7 +57,7 @@ README.md                {#LREADME}
    [doxygen version 1.8.10 or newer](http://doxygen.org).
  6. Building the unit tests requires [Python](https://www.python.org/).
  7. Emscripten builds require the portable
-   [EMSDK](https://kripken.github.io/emscripten-site/index.html).
+   [EMSDK](https://emscripten.org/index.html).
 
 ### Get the code {#get-the-code}
 
@@ -260,9 +260,12 @@ used to hook into the AOMAnalyzer GUI application. These instructions focus on
 using the inspector with AOMAnalyzer, but all tools can be built with
 Emscripten.
 
-It is assumed here that you have already downloaded and installed the EMSDK,
-installed and activated at least one toolchain, and setup your environment
-appropriately using the emsdk\_env script.
+* Follow the instructions to clone [emsdk](https://emscripten.org/docs/getting_started/downloads.html).
+* Install and activate version 1.38.35 by running: 
+  * `./emsdk install 1.38.35`
+  * `./emsdk activate 1.38.35`.
+* Setup your environment using the emsdk\_env script
+  * `source ./emsdk_env.sh`
 
 1. Download [AOMAnalyzer](https://people.xiph.org/~mbebenita/analyzer/).
 
@@ -279,7 +282,7 @@ appropriately using the emsdk\_env script.
         -DCONFIG_MULTITHREAD=0 \
         -DCONFIG_RUNTIME_CPU_DETECT=0 \
         -DCONFIG_WEBM_IO=0 \
-        -DCMAKE_TOOLCHAIN_FILE=path/to/emsdk-portable/.../Emscripten.cmake
+        -DCMAKE_TOOLCHAIN_FILE=path/to/emsdk/fastcomp/emscripten/cmake/Modules/Platform/Emscripten.cmake
 ~~~
 
 3. Build it: run make if that's your generator of choice:
