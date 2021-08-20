@@ -541,6 +541,8 @@ int put_film_grain_params(char *buffer) {
                     film_grain.apply_grain);
     buf += snprintf(buf, MAX_BUFFER, "    \"num_y_points\": %d,\n",
                     film_grain.num_y_points);
+    buf += snprintf(buf, MAX_BUFFER, "    \"update_parameters\": %d,\n",
+                    film_grain.update_parameters);
 
     buf += put_str(buf, "    \"scaling_points_y\" : ");
     *(buf++) = '[';

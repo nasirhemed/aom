@@ -3941,6 +3941,7 @@ void av1_read_film_grain_params(AV1_COMMON *cm,
     }
     uint16_t random_seed = pars->random_seed;
     *pars = buf->film_grain_params;   // inherit paramaters
+    pars->update_parameters = 0;
     pars->random_seed = random_seed;  // with new random seed
     return;
   }
