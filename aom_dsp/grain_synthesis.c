@@ -1015,6 +1015,71 @@ int av1_add_film_grain(const aom_film_grain_t *params, const aom_image_t *src,
   luma_stride = dst->stride[AOM_PLANE_Y] >> use_high_bit_depth;
   chroma_stride = dst->stride[AOM_PLANE_U] >> use_high_bit_depth;
 
+#if CONFIG_INSPECTION
+
+  dst->grain_block[AOM_PLANE_Y] = aom_malloc(sizeof(uint8_t) * width * height);
+  dst->grain_block[AOM_PLANE_U] =
+      aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) *
+                 (height >> chroma_subsamp_y));
+  dst->grain_block[AOM_PLANE_V] =
+      aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) *
+                 (height >> chroma_subsamp_y));
+
+  dst->scaled_grain_block[AOM_PLANE_Y] =
+      aom_malloc(sizeof(uint8_t) * width * height);
+  dst->scaled_grain_block[AOM_PLANE_U] =
+      aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) *
+                 (height >> chroma_subsamp_y));
+  dst->scaled_grain_block[AOM_PLANE_V] =
+      aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) *
+                 (height >> chroma_subsamp_y));
+
+  dst->old_plane[AOM_PLANE_Y] = aom_malloc(sizeof(uint8_t) * width * height);
+  dst->old_plane[AOM_PLANE_U] =
+      aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) *
+                 (height >> chroma_subsamp_y));
+  dst->old_plane[AOM_PLANE_V] =
+      aom_malloc(sizeof(uint8_t) * (width >> chroma_subsamp_x) *
+                 (height >> chroma_subsamp_y));
+
+  int *scaled_luma = aom_malloc(sizeof(int) * width * height);
+  int *scaled_cb = aom_malloc(sizeof(int) * (width >> chroma_subsamp_x) *
+                              (height >> chroma_subsamp_y));
+  int *scaled_cr = aom_malloc(sizeof(int) * (width >> chroma_subsamp_x) *
+                              (height >> chroma_subsamp_y));
+
+  for (int i = 0; i < width * height; i++) {
+    dst->grain_block[AOM_PLANE_Y][i] = dst->planes[AOM_PLANE_Y][i];
+    dst->old_plane[AOM_PLANE_Y][i] = dst->planes[AOM_PLANE_Y][i];
+  }
+
+  for (int i = 0;
+       i < (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y); i++) {
+    dst->grain_block[AOM_PLANE_U][i] = dst->planes[AOM_PLANE_U][i];
+    dst->old_plane[AOM_PLANE_U][i] = dst->planes[AOM_PLANE_U][i];
+    dst->grain_block[AOM_PLANE_V][i] = dst->planes[AOM_PLANE_V][i];
+    dst->old_plane[AOM_PLANE_V][i] = dst->planes[AOM_PLANE_V][i];
+  }
+
+  // TODO(nasirhemed) high bit-depth is currently not supported. Assuming input
+  // streams for inspection is 8-bit
+  generate_grain_image(
+      params, dst->grain_block[AOM_PLANE_Y], dst->grain_block[AOM_PLANE_U],
+      dst->grain_block[AOM_PLANE_V], scaled_luma, scaled_cb, scaled_cr, height,
+      width, luma_stride, chroma_stride, chroma_subsamp_y, chroma_subsamp_x);
+
+  for (int i = 0; i < width * height; i++) {
+    dst->scaled_grain_block[AOM_PLANE_Y][i] = (uint8_t)scaled_luma[i];
+  }
+
+  for (int i = 0;
+       i < (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y); i++) {
+    dst->scaled_grain_block[AOM_PLANE_U][i] = (uint8_t)scaled_cb[i];
+    dst->scaled_grain_block[AOM_PLANE_V][i] = (uint8_t)scaled_cr[i];
+  }
+
+#endif
+
   return av1_add_film_grain_run(
       params, luma, cb, cr, height, width, luma_stride, chroma_stride,
       use_high_bit_depth, chroma_subsamp_y, chroma_subsamp_x, mc_identity);
@@ -1486,7 +1551,7 @@ void generate_grain_uv_c(grain_values *grain_data,
       }
 
       const int grain = buf[y][x] + round2(sum, data->ar_coeff_shift);
-      buf[y][x] = iclip(grain, gr_min, gr_max);
+      buf[y][x] = CLIP(grain, gr_min, gr_max);
     }
   }
 }
@@ -1525,7 +1590,7 @@ void generate_grain_y_c(grain_values *grain_data,
       }
 
       const int grain = buf[y][x] + round2(sum, data->ar_coeff_shift);
-      buf[y][x] = iclip(grain, gr_min, gr_max);
+      buf[y][x] = CLIP(grain, gr_min, gr_max);
     }
   }
 }
@@ -1533,5 +1598,489 @@ void generate_grain_y_c(grain_values *grain_data,
 void init_scaling_function_extern(const int scaling_points[][2], int num_points,
                                   int scaling_lut[]) {
   return init_scaling_function(scaling_points, num_points, scaling_lut);
+}
+
+#define round_divide(x, y) (x + (y / 2)) / y
+
+static void fill_block(const aom_film_grain_t *params, uint8_t *luma,
+                       uint8_t *cb, uint8_t *cr, int *scaled_luma,
+                       int *scaled_cb, int *scaled_cr, int luma_stride,
+                       int chroma_stride, int *luma_grain, int *cb_grain,
+                       int *cr_grain, int luma_grain_stride,
+                       int chroma_grain_stride, int half_luma_height,
+                       int half_luma_width, int bit_depth, int chroma_subsamp_y,
+                       int chroma_subsamp_x, int (*sc_max_min)[2]) {
+  int cb_mult = params->cb_mult - 128;            // fixed scale
+  int cb_luma_mult = params->cb_luma_mult - 128;  // fixed scale
+  // offset value depends on the bit depth
+  int cb_offset = (params->cb_offset << (bit_depth - 8)) - (1 << bit_depth);
+
+  int cr_mult = params->cr_mult - 128;            // fixed scale
+  int cr_luma_mult = params->cr_luma_mult - 128;  // fixed scale
+  // offset value depends on the bit depth
+  int cr_offset = (params->cr_offset << (bit_depth - 8)) - (1 << bit_depth);
+
+  int rounding_offset = (1 << (params->ar_coeff_shift - 1));
+
+  int apply_y = params->num_y_points > 0 ? 1 : 0;
+  int apply_cb =
+      (params->num_cb_points > 0 || params->chroma_scaling_from_luma) ? 1 : 0;
+  int apply_cr =
+      (params->num_cr_points > 0 || params->chroma_scaling_from_luma) ? 1 : 0;
+
+  if (params->chroma_scaling_from_luma) {
+    cb_mult = 0;        // fixed scale
+    cb_luma_mult = 64;  // fixed scale
+    cb_offset = 0;
+
+    cr_mult = 0;        // fixed scale
+    cr_luma_mult = 64;  // fixed scale
+    cr_offset = 0;
+  }
+
+  for (int i = 0; i < (half_luma_height << (1 - chroma_subsamp_y)); i++) {
+    for (int j = 0; j < (half_luma_width << (1 - chroma_subsamp_x)); j++) {
+      int average_luma = 0;
+      if (chroma_subsamp_x) {
+        average_luma = (luma[(i << chroma_subsamp_y) * luma_stride +
+                             (j << chroma_subsamp_x)] +
+                        luma[(i << chroma_subsamp_y) * luma_stride +
+                             (j << chroma_subsamp_x) + 1] +
+                        1) >>
+                       1;
+      } else {
+        average_luma = luma[(i << chroma_subsamp_y) * luma_stride + j];
+      }
+
+      if (apply_cb) {
+        scaled_cb[i * chroma_stride + j] =
+            ((scale_LUT(scaling_lut_cb,
+                        clamp(((average_luma * cb_luma_mult +
+                                cb_mult * cb[i * chroma_stride + j]) >>
+                               6) +
+                                  cb_offset,
+                              0, (256 << (bit_depth - 8)) - 1),
+                        bit_depth) *
+                  cb_grain[i * chroma_grain_stride + j] +
+              rounding_offset) >>
+             params->scaling_shift);
+        if (scaled_cb[i * chroma_stride + j] < sc_max_min[1][0]) {
+          sc_max_min[1][0] = scaled_cb[i * chroma_stride + j];
+        }
+        if (scaled_cb[i * chroma_stride + j] > sc_max_min[1][1]) {
+          sc_max_min[1][1] = scaled_cb[i * chroma_stride + j];
+        }
+        cb[i * chroma_stride + j] = round_divide(
+            (255 * (cb_grain[i * chroma_grain_stride + j] - grain_min)),
+            (grain_max - grain_min));
+      }
+      if (apply_cr) {
+        scaled_cr[i * chroma_stride + j] =
+            ((scale_LUT(scaling_lut_cr,
+                        clamp(((average_luma * cr_luma_mult +
+                                cr_mult * cr[i * chroma_stride + j]) >>
+                               6) +
+                                  cr_offset,
+                              0, (256 << (bit_depth - 8)) - 1),
+                        bit_depth) *
+                  cr_grain[i * chroma_grain_stride + j] +
+              rounding_offset) >>
+             params->scaling_shift);
+        if (scaled_cr[i * chroma_stride + j] < sc_max_min[2][0]) {
+          sc_max_min[2][0] = scaled_cr[i * chroma_stride + j];
+        }
+        if (scaled_cr[i * chroma_stride + j] > sc_max_min[2][1]) {
+          sc_max_min[2][1] = scaled_cr[i * chroma_stride + j];
+        }
+        cr[i * chroma_stride + j] = round_divide(
+            (255 * (cr_grain[i * chroma_grain_stride + j] - grain_min)),
+            (grain_max - grain_min));
+      }
+    }
+  }
+
+  if (apply_y) {
+    for (int i = 0; i < (half_luma_height << 1); i++) {
+      for (int j = 0; j < (half_luma_width << 1); j++) {
+        scaled_luma[i * luma_stride + j] =
+            ((scale_LUT(scaling_lut_y, luma[i * luma_stride + j], bit_depth) *
+                  luma_grain[i * luma_grain_stride + j] +
+              rounding_offset) >>
+             params->scaling_shift);
+
+        if (scaled_luma[i * luma_stride + j] < sc_max_min[0][0]) {
+          sc_max_min[0][0] = scaled_luma[i * luma_stride + j];
+        }
+        if (scaled_luma[i * luma_stride + j] > sc_max_min[0][1]) {
+          sc_max_min[0][1] = scaled_luma[i * luma_stride + j];
+        }
+        luma[i * luma_stride + j] = round_divide(
+            (255 * (luma_grain[i * luma_grain_stride + j] - grain_min)),
+            (grain_max - grain_min));
+      }
+    }
+  }
+}
+
+static void normalize_arrays(int *arr, int len, int min, int max) {
+  for (int i = 0; i < len; i++) {
+    arr[i] = round_divide((255 * (arr[i] - min)), (max - min));
+  }
+}
+
+int generate_grain_image(const aom_film_grain_t *params, uint8_t *luma,
+                         uint8_t *cb, uint8_t *cr, int *scaled_luma,
+                         int *scaled_cb, int *scaled_cr, int height, int width,
+                         int luma_stride, int chroma_stride,
+                         int chroma_subsamp_y, int chroma_subsamp_x) {
+  int **pred_pos_luma;
+  int **pred_pos_chroma;
+  int *luma_grain_block;
+  int *cb_grain_block;
+  int *cr_grain_block;
+
+  int *y_line_buf;
+  int *cb_line_buf;
+  int *cr_line_buf;
+
+  int *y_col_buf;
+  int *cb_col_buf;
+  int *cr_col_buf;
+
+  random_register = params->random_seed;
+
+  int left_pad = 3;
+  int right_pad = 3;  // padding to offset for AR coefficients
+  int top_pad = 3;
+  int bottom_pad = 0;
+
+  int ar_padding = 3;  // maximum lag used for stabilization of AR coefficients
+
+  luma_subblock_size_y = 32;
+  luma_subblock_size_x = 32;
+
+  chroma_subblock_size_y = luma_subblock_size_y >> chroma_subsamp_y;
+  chroma_subblock_size_x = luma_subblock_size_x >> chroma_subsamp_x;
+
+  // Initial padding is only needed for generation of
+  // film grain templates (to stabilize the AR process)
+  // Only a 64x64 luma and 32x32 chroma part of a template
+  // is used later for adding grain, padding can be discarded
+
+  int luma_block_size_y =
+      top_pad + 2 * ar_padding + luma_subblock_size_y * 2 + bottom_pad;
+  int luma_block_size_x = left_pad + 2 * ar_padding + luma_subblock_size_x * 2 +
+                          2 * ar_padding + right_pad;
+
+  int chroma_block_size_y = top_pad + (2 >> chroma_subsamp_y) * ar_padding +
+                            chroma_subblock_size_y * 2 + bottom_pad;
+  int chroma_block_size_x = left_pad + (2 >> chroma_subsamp_x) * ar_padding +
+                            chroma_subblock_size_x * 2 +
+                            (2 >> chroma_subsamp_x) * ar_padding + right_pad;
+
+  int luma_grain_stride = luma_block_size_x;
+  int chroma_grain_stride = chroma_block_size_x;
+
+  int overlap = params->overlap_flag;
+  int bit_depth = params->bit_depth;
+
+  const int grain_center = 128 << (bit_depth - 8);
+  grain_min = 0 - grain_center;
+  grain_max = grain_center - 1;
+
+  int sc_max_min[3][2] = { { INT32_MAX, INT32_MIN },
+                           { INT32_MAX, INT32_MIN },
+                           { INT32_MAX, INT32_MIN } };
+
+  init_arrays(params, luma_stride, chroma_stride, &pred_pos_luma,
+              &pred_pos_chroma, &luma_grain_block, &cb_grain_block,
+              &cr_grain_block, &y_line_buf, &cb_line_buf, &cr_line_buf,
+              &y_col_buf, &cb_col_buf, &cr_col_buf,
+              luma_block_size_y * luma_block_size_x,
+              chroma_block_size_y * chroma_block_size_x, chroma_subsamp_y,
+              chroma_subsamp_x);
+
+  if (generate_luma_grain_block(params, pred_pos_luma, luma_grain_block,
+                                luma_block_size_y, luma_block_size_x,
+                                luma_grain_stride, left_pad, top_pad, right_pad,
+                                bottom_pad))
+    return -1;
+
+  if (generate_chroma_grain_blocks(
+          params,
+          //                               pred_pos_luma,
+          pred_pos_chroma, luma_grain_block, cb_grain_block, cr_grain_block,
+          luma_grain_stride, chroma_block_size_y, chroma_block_size_x,
+          chroma_grain_stride, left_pad, top_pad, right_pad, bottom_pad,
+          chroma_subsamp_y, chroma_subsamp_x))
+    return -1;
+
+  init_scaling_function(params->scaling_points_y, params->num_y_points,
+                        scaling_lut_y);
+
+  if (params->chroma_scaling_from_luma) {
+    memcpy(scaling_lut_cb, scaling_lut_y, sizeof(*scaling_lut_y) * 256);
+    memcpy(scaling_lut_cr, scaling_lut_y, sizeof(*scaling_lut_y) * 256);
+  } else {
+    init_scaling_function(params->scaling_points_cb, params->num_cb_points,
+                          scaling_lut_cb);
+    init_scaling_function(params->scaling_points_cr, params->num_cr_points,
+                          scaling_lut_cr);
+  }
+
+  for (int y = 0; y < height / 2; y += (luma_subblock_size_y >> 1)) {
+    init_random_generator(y * 2, params->random_seed);
+
+    for (int x = 0; x < width / 2; x += (luma_subblock_size_x >> 1)) {
+      int offset_y = get_random_number(8);
+      int offset_x = (offset_y >> 4) & 15;
+      offset_y &= 15;
+
+      int luma_offset_y = left_pad + 2 * ar_padding + (offset_y << 1);
+      int luma_offset_x = top_pad + 2 * ar_padding + (offset_x << 1);
+
+      int chroma_offset_y = top_pad + (2 >> chroma_subsamp_y) * ar_padding +
+                            offset_y * (2 >> chroma_subsamp_y);
+      int chroma_offset_x = left_pad + (2 >> chroma_subsamp_x) * ar_padding +
+                            offset_x * (2 >> chroma_subsamp_x);
+
+      if (overlap && x) {
+        ver_boundary_overlap(
+            y_col_buf, 2,
+            luma_grain_block + luma_offset_y * luma_grain_stride +
+                luma_offset_x,
+            luma_grain_stride, y_col_buf, 2, 2,
+            AOMMIN(luma_subblock_size_y + 2, height - (y << 1)));
+
+        ver_boundary_overlap(
+            cb_col_buf, 2 >> chroma_subsamp_x,
+            cb_grain_block + chroma_offset_y * chroma_grain_stride +
+                chroma_offset_x,
+            chroma_grain_stride, cb_col_buf, 2 >> chroma_subsamp_x,
+            2 >> chroma_subsamp_x,
+            AOMMIN(chroma_subblock_size_y + (2 >> chroma_subsamp_y),
+                   (height - (y << 1)) >> chroma_subsamp_y));
+
+        ver_boundary_overlap(
+            cr_col_buf, 2 >> chroma_subsamp_x,
+            cr_grain_block + chroma_offset_y * chroma_grain_stride +
+                chroma_offset_x,
+            chroma_grain_stride, cr_col_buf, 2 >> chroma_subsamp_x,
+            2 >> chroma_subsamp_x,
+            AOMMIN(chroma_subblock_size_y + (2 >> chroma_subsamp_y),
+                   (height - (y << 1)) >> chroma_subsamp_y));
+
+        int i = y ? 1 : 0;
+
+        fill_block(
+            params, luma + ((y + i) << 1) * luma_stride + (x << 1),
+            cb + ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
+                (x << (1 - chroma_subsamp_x)),
+            cr + ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
+                (x << (1 - chroma_subsamp_x)),
+            scaled_luma + ((y + i) << 1) * luma_stride + (x << 1),
+            scaled_cb + ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
+                (x << (1 - chroma_subsamp_x)),
+            scaled_cr + ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
+                (x << (1 - chroma_subsamp_x)),
+            luma_stride, chroma_stride, y_col_buf + i * 4,
+            cb_col_buf + i * (2 - chroma_subsamp_y) * (2 - chroma_subsamp_x),
+            cr_col_buf + i * (2 - chroma_subsamp_y) * (2 - chroma_subsamp_x), 2,
+            (2 - chroma_subsamp_x),
+            AOMMIN(luma_subblock_size_y >> 1, height / 2 - y) - i, 1, bit_depth,
+            chroma_subsamp_y, chroma_subsamp_x, sc_max_min);
+      }
+
+      if (overlap && y) {
+        if (x) {
+          hor_boundary_overlap(y_line_buf + (x << 1), luma_stride, y_col_buf, 2,
+                               y_line_buf + (x << 1), luma_stride, 2, 2);
+
+          hor_boundary_overlap(cb_line_buf + x * (2 >> chroma_subsamp_x),
+                               chroma_stride, cb_col_buf, 2 >> chroma_subsamp_x,
+                               cb_line_buf + x * (2 >> chroma_subsamp_x),
+                               chroma_stride, 2 >> chroma_subsamp_x,
+                               2 >> chroma_subsamp_y);
+
+          hor_boundary_overlap(cr_line_buf + x * (2 >> chroma_subsamp_x),
+                               chroma_stride, cr_col_buf, 2 >> chroma_subsamp_x,
+                               cr_line_buf + x * (2 >> chroma_subsamp_x),
+                               chroma_stride, 2 >> chroma_subsamp_x,
+                               2 >> chroma_subsamp_y);
+        }
+
+        hor_boundary_overlap(
+            y_line_buf + ((x ? x + 1 : 0) << 1), luma_stride,
+            luma_grain_block + luma_offset_y * luma_grain_stride +
+                luma_offset_x + (x ? 2 : 0),
+            luma_grain_stride, y_line_buf + ((x ? x + 1 : 0) << 1), luma_stride,
+            AOMMIN(luma_subblock_size_x - ((x ? 1 : 0) << 1),
+                   width - ((x ? x + 1 : 0) << 1)),
+            2);
+
+        hor_boundary_overlap(
+            cb_line_buf + ((x ? x + 1 : 0) << (1 - chroma_subsamp_x)),
+            chroma_stride,
+            cb_grain_block + chroma_offset_y * chroma_grain_stride +
+                chroma_offset_x + ((x ? 1 : 0) << (1 - chroma_subsamp_x)),
+            chroma_grain_stride,
+            cb_line_buf + ((x ? x + 1 : 0) << (1 - chroma_subsamp_x)),
+            chroma_stride,
+            AOMMIN(chroma_subblock_size_x -
+                       ((x ? 1 : 0) << (1 - chroma_subsamp_x)),
+                   (width - ((x ? x + 1 : 0) << 1)) >> chroma_subsamp_x),
+            2 >> chroma_subsamp_y);
+
+        hor_boundary_overlap(
+            cr_line_buf + ((x ? x + 1 : 0) << (1 - chroma_subsamp_x)),
+            chroma_stride,
+            cr_grain_block + chroma_offset_y * chroma_grain_stride +
+                chroma_offset_x + ((x ? 1 : 0) << (1 - chroma_subsamp_x)),
+            chroma_grain_stride,
+            cr_line_buf + ((x ? x + 1 : 0) << (1 - chroma_subsamp_x)),
+            chroma_stride,
+            AOMMIN(chroma_subblock_size_x -
+                       ((x ? 1 : 0) << (1 - chroma_subsamp_x)),
+                   (width - ((x ? x + 1 : 0) << 1)) >> chroma_subsamp_x),
+            2 >> chroma_subsamp_y);
+
+        fill_block(params, luma + (y << 1) * luma_stride + (x << 1),
+                   cb + (y << (1 - chroma_subsamp_y)) * chroma_stride +
+                       (x << ((1 - chroma_subsamp_x))),
+                   cr + (y << (1 - chroma_subsamp_y)) * chroma_stride +
+                       (x << ((1 - chroma_subsamp_x))),
+                   scaled_luma + (y << 1) * luma_stride + (x << 1),
+                   scaled_cb + (y << (1 - chroma_subsamp_y)) * chroma_stride +
+                       (x << ((1 - chroma_subsamp_x))),
+                   scaled_cr + (y << (1 - chroma_subsamp_y)) * chroma_stride +
+                       (x << ((1 - chroma_subsamp_x))),
+                   luma_stride, chroma_stride, y_line_buf + (x << 1),
+                   cb_line_buf + (x << (1 - chroma_subsamp_x)),
+                   cr_line_buf + (x << (1 - chroma_subsamp_x)), luma_stride,
+                   chroma_stride, 1,
+                   AOMMIN(luma_subblock_size_x >> 1, width / 2 - x), bit_depth,
+                   chroma_subsamp_y, chroma_subsamp_x, sc_max_min);
+      }
+
+      int i = overlap && y ? 1 : 0;
+      int j = overlap && x ? 1 : 0;
+
+      fill_block(
+          params, luma + ((y + i) << 1) * luma_stride + ((x + j) << 1),
+          cb + ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
+              ((x + j) << (1 - chroma_subsamp_x)),
+          cr + ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
+              ((x + j) << (1 - chroma_subsamp_x)),
+          scaled_luma + ((y + i) << 1) * luma_stride + ((x + j) << 1),
+          scaled_cb + ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
+              ((x + j) << (1 - chroma_subsamp_x)),
+          scaled_cr + ((y + i) << (1 - chroma_subsamp_y)) * chroma_stride +
+              ((x + j) << (1 - chroma_subsamp_x)),
+          luma_stride, chroma_stride,
+          luma_grain_block + (luma_offset_y + (i << 1)) * luma_grain_stride +
+              luma_offset_x + (j << 1),
+          cb_grain_block +
+              (chroma_offset_y + (i << (1 - chroma_subsamp_y))) *
+                  chroma_grain_stride +
+              chroma_offset_x + (j << (1 - chroma_subsamp_x)),
+          cr_grain_block +
+              (chroma_offset_y + (i << (1 - chroma_subsamp_y))) *
+                  chroma_grain_stride +
+              chroma_offset_x + (j << (1 - chroma_subsamp_x)),
+          luma_grain_stride, chroma_grain_stride,
+          AOMMIN(luma_subblock_size_y >> 1, height / 2 - y) - i,
+          AOMMIN(luma_subblock_size_x >> 1, width / 2 - x) - j, bit_depth,
+          chroma_subsamp_y, chroma_subsamp_x, sc_max_min);
+
+      if (overlap) {
+        if (x) {
+          // Copy overlapped column bufer to line buffer
+          copy_area(y_col_buf + (luma_subblock_size_y << 1), 2,
+                    y_line_buf + (x << 1), luma_stride, 2, 2);
+
+          copy_area(
+              cb_col_buf + (chroma_subblock_size_y << (1 - chroma_subsamp_x)),
+              2 >> chroma_subsamp_x,
+              cb_line_buf + (x << (1 - chroma_subsamp_x)), chroma_stride,
+              2 >> chroma_subsamp_x, 2 >> chroma_subsamp_y);
+
+          copy_area(
+              cr_col_buf + (chroma_subblock_size_y << (1 - chroma_subsamp_x)),
+              2 >> chroma_subsamp_x,
+              cr_line_buf + (x << (1 - chroma_subsamp_x)), chroma_stride,
+              2 >> chroma_subsamp_x, 2 >> chroma_subsamp_y);
+        }
+
+        // Copy grain to the line buffer for overlap with a bottom block
+        copy_area(
+            luma_grain_block +
+                (luma_offset_y + luma_subblock_size_y) * luma_grain_stride +
+                luma_offset_x + ((x ? 2 : 0)),
+            luma_grain_stride, y_line_buf + ((x ? x + 1 : 0) << 1), luma_stride,
+            AOMMIN(luma_subblock_size_x, width - (x << 1)) - (x ? 2 : 0), 2);
+
+        copy_area(cb_grain_block +
+                      (chroma_offset_y + chroma_subblock_size_y) *
+                          chroma_grain_stride +
+                      chroma_offset_x + (x ? 2 >> chroma_subsamp_x : 0),
+                  chroma_grain_stride,
+                  cb_line_buf + ((x ? x + 1 : 0) << (1 - chroma_subsamp_x)),
+                  chroma_stride,
+                  AOMMIN(chroma_subblock_size_x,
+                         ((width - (x << 1)) >> chroma_subsamp_x)) -
+                      (x ? 2 >> chroma_subsamp_x : 0),
+                  2 >> chroma_subsamp_y);
+
+        copy_area(cr_grain_block +
+                      (chroma_offset_y + chroma_subblock_size_y) *
+                          chroma_grain_stride +
+                      chroma_offset_x + (x ? 2 >> chroma_subsamp_x : 0),
+                  chroma_grain_stride,
+                  cr_line_buf + ((x ? x + 1 : 0) << (1 - chroma_subsamp_x)),
+                  chroma_stride,
+                  AOMMIN(chroma_subblock_size_x,
+                         ((width - (x << 1)) >> chroma_subsamp_x)) -
+                      (x ? 2 >> chroma_subsamp_x : 0),
+                  2 >> chroma_subsamp_y);
+
+        // Copy grain to the column buffer for overlap with the next block to
+        // the right
+
+        copy_area(luma_grain_block + luma_offset_y * luma_grain_stride +
+                      luma_offset_x + luma_subblock_size_x,
+                  luma_grain_stride, y_col_buf, 2, 2,
+                  AOMMIN(luma_subblock_size_y + 2, height - (y << 1)));
+
+        copy_area(cb_grain_block + chroma_offset_y * chroma_grain_stride +
+                      chroma_offset_x + chroma_subblock_size_x,
+                  chroma_grain_stride, cb_col_buf, 2 >> chroma_subsamp_x,
+                  2 >> chroma_subsamp_x,
+                  AOMMIN(chroma_subblock_size_y + (2 >> chroma_subsamp_y),
+                         (height - (y << 1)) >> chroma_subsamp_y));
+
+        copy_area(cr_grain_block + chroma_offset_y * chroma_grain_stride +
+                      chroma_offset_x + chroma_subblock_size_x,
+                  chroma_grain_stride, cr_col_buf, 2 >> chroma_subsamp_x,
+                  2 >> chroma_subsamp_x,
+                  AOMMIN(chroma_subblock_size_y + (2 >> chroma_subsamp_y),
+                         (height - (y << 1)) >> chroma_subsamp_y));
+      }
+    }
+  }
+
+  normalize_arrays(scaled_luma, width * height, sc_max_min[0][0],
+                   sc_max_min[0][1]);
+  normalize_arrays(scaled_cb,
+                   (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y),
+                   sc_max_min[1][0], sc_max_min[1][1]);
+  normalize_arrays(scaled_cr,
+                   (width >> chroma_subsamp_x) * (height >> chroma_subsamp_y),
+                   sc_max_min[2][0], sc_max_min[2][1]);
+
+  dealloc_arrays(params, &pred_pos_luma, &pred_pos_chroma, &luma_grain_block,
+                 &cb_grain_block, &cr_grain_block, &y_line_buf, &cb_line_buf,
+                 &cr_line_buf, &y_col_buf, &cb_col_buf, &cr_col_buf);
+
+  return 0;
 }
 #endif

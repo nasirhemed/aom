@@ -1077,6 +1077,9 @@ EMSCRIPTEN_KEEPALIVE
 unsigned char *get_plane(int plane) { return img->planes[plane]; }
 
 EMSCRIPTEN_KEEPALIVE
+unsigned char *get_old_plane(int plane) { return img->old_plane[plane]; }
+
+EMSCRIPTEN_KEEPALIVE
 int get_plane_stride(int plane) { return img->stride[plane]; }
 
 EMSCRIPTEN_KEEPALIVE
@@ -1090,6 +1093,14 @@ int get_frame_width() { return info->frame_width; }
 
 EMSCRIPTEN_KEEPALIVE
 int get_frame_height() { return info->frame_height; }
+
+EMSCRIPTEN_KEEPALIVE
+unsigned char *get_grain_values(int plane) {
+  if (plane < 3)
+    return img->grain_block[plane];
+  else
+    return img->scaled_grain_block[plane - 3];
+}
 
 static void parse_args(char **argv) {
   char **argi, **argj;
