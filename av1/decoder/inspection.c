@@ -13,6 +13,8 @@
 #include "av1/common/enums.h"
 #include "av1/common/cdef.h"
 
+#include "aom_dsp/grain_synthesis.h"
+
 static void ifd_init_mi_rc(insp_frame_data *fd, int mi_cols, int mi_rows) {
   fd->mi_cols = mi_cols;
   fd->mi_rows = mi_rows;
@@ -38,6 +40,46 @@ int ifd_inspect(insp_frame_data *fd, void *decoder, int skip_not_transform) {
   AV1_COMMON *const cm = &pbi->common;
   const CommonModeInfoParams *const mi_params = &cm->mi_params;
   const CommonQuantParams *quant_params = &cm->quant_params;
+
+  // Check for film grain parameters
+  if (cm->cur_frame->film_grain_params_present &&
+      cm->cur_frame->film_grain_params.apply_grain) {
+    assert(av1_check_grain_params_equiv(&cm->film_grain_params,
+                                        &cm->cur_frame->film_grain_params));
+    fd->film_grain_params_present = 1;
+
+    memcpy(&fd->film_grain_params, &cm->cur_frame->film_grain_params,
+           sizeof(fd->film_grain_params));
+
+    generate_grain_y_c(&(fd->grain_data[0]), &fd->film_grain_params);
+
+    generate_grain_uv_c(
+        &(fd->grain_data[1]), &(fd->grain_data[0]), &fd->film_grain_params, 0,
+        cm->seq_params->subsampling_x, cm->seq_params->subsampling_y);
+
+    generate_grain_uv_c(
+        &(fd->grain_data[2]), &(fd->grain_data[0]), &fd->film_grain_params, 1,
+        cm->seq_params->subsampling_x, cm->seq_params->subsampling_y);
+    init_scaling_function_extern(fd->film_grain_params.scaling_points_y,
+                                 fd->film_grain_params.num_y_points,
+                                 fd->scaling_lut_y);
+    if (fd->film_grain_params.chroma_scaling_from_luma) {
+      memcpy(fd->scaling_lut_cb, fd->scaling_lut_y,
+             256 * sizeof(*fd->scaling_lut_y));
+      memcpy(fd->scaling_lut_cr, fd->scaling_lut_y,
+             256 * sizeof(*fd->scaling_lut_y));
+    } else {
+      init_scaling_function_extern(fd->film_grain_params.scaling_points_cb,
+                                   fd->film_grain_params.num_cb_points,
+                                   fd->scaling_lut_cb);
+      init_scaling_function_extern(fd->film_grain_params.scaling_points_cr,
+                                   fd->film_grain_params.num_cr_points,
+                                   fd->scaling_lut_cr);
+    }
+
+  } else {
+    fd->film_grain_params_present = 0;
+  }
 
   if (fd->mi_rows != mi_params->mi_rows || fd->mi_cols != mi_params->mi_cols) {
     ifd_clear(fd);
@@ -96,7 +138,21 @@ int ifd_inspect(insp_frame_data *fd, void *decoder, int skip_not_transform) {
       }
 
       mi->motion_mode = mbmi->motion_mode;
-      mi->compound_type = mbmi->interinter_comp.type;
+
+      if (mbmi->ref_frame[1] > INTRA_FRAME) {
+        mi->compound_type = mbmi->interinter_comp.type;
+        if (mbmi->interinter_comp.type == COMPOUND_WEDGE) {
+          mi->wedge[0] = mbmi->interinter_comp.wedge_index;
+          mi->wedge[1] = mbmi->interinter_comp.wedge_sign;
+        } else {
+          mi->wedge[0] = -1;
+          mi->wedge[1] = -1;
+        }
+      } else {
+        mi->compound_type = -1;
+        mi->wedge[0] = -1;
+        mi->wedge[1] = -1;
+      }
 
       // Block Size
       mi->bsize = mbmi->bsize;
