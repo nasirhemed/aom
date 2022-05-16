@@ -283,6 +283,7 @@ Emscripten.
         -DCONFIG_RUNTIME_CPU_DETECT=0 \
         -DCONFIG_WEBM_IO=0 \
         -DCMAKE_TOOLCHAIN_FILE=path/to/emsdk/fastcomp/emscripten/cmake/Modules/Platform/Emscripten.cmake
+        -DCMAKE_BUILD_TYPE=Release
 ~~~
 
 3. Build it: run make if that's your generator of choice:
